@@ -376,6 +376,23 @@ fun NetworkScreen(
                 }
             }
 
+            // ── 智能诊断 ────────────────────────────────
+            Spacer(Modifier.height(14.dp))
+            SectionTitle("智能诊断", trailing = "基于真实测量")
+            Spacer(Modifier.height(9.dp))
+            val diagnosis = remember(
+                state.ping, state.wifi, state.dnsProbes, state.publicIpv6, state.accessType
+            ) {
+                com.flowstats.app.data.DiagnosisEngine.analyze(
+                    ping = state.ping,
+                    wifi = state.wifi,
+                    dnsProbes = state.dnsProbes,
+                    hasIpv6 = !state.publicIpv6.isNullOrBlank(),
+                    isMobile = state.accessType != "Wi-Fi" && !state.wifi.isWifi
+                )
+            }
+            DiagnosisCard(diagnosis)
+
             // ── 链路质量历史 ────────────────────────────
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -780,4 +797,123 @@ private fun gradeColor(grade: com.flowstats.app.data.LinkGrade): Color = when (g
     com.flowstats.app.data.LinkGrade.POOR -> Orange          // 橙
     com.flowstats.app.data.LinkGrade.BAD -> Danger           // 红
     com.flowstats.app.data.LinkGrade.UNKNOWN -> Slate
+}
+
+/** 智能诊断卡片：结论横幅 + 指标条形图 + 建议列表，全部基于真实测量 */
+@Composable
+private fun DiagnosisCard(report: com.flowstats.app.data.DiagnosisEngine.Report) {
+    val levelColor: Color = when (report.overall) {
+        com.flowstats.app.data.DiagnosisEngine.Level.EXCELLENT -> Success
+        com.flowstats.app.data.DiagnosisEngine.Level.GOOD -> Teal
+        com.flowstats.app.data.DiagnosisEngine.Level.FAIR -> Warning
+        com.flowstats.app.data.DiagnosisEngine.Level.POOR -> Orange
+        com.flowstats.app.data.DiagnosisEngine.Level.BAD -> Danger
+        else -> Slate
+    }
+    SoftCard(
+        Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        corner = 22.dp,
+        elevation = 3.dp
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+            // 结论横幅
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(9.dp).clip(RoundedCornerShape(5.dp)).background(levelColor)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "综合评估 · ${report.overall.label}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = levelColor
+                )
+            }
+            Spacer(Modifier.height(7.dp))
+            Text(
+                report.headline,
+                fontSize = 11.5.sp,
+                lineHeight = 17.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // 指标条形图
+            if (report.metrics.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                report.metrics.forEach { m ->
+                    val c: Color = when (m.level) {
+                        com.flowstats.app.data.DiagnosisEngine.Level.EXCELLENT -> Success
+                        com.flowstats.app.data.DiagnosisEngine.Level.GOOD -> Teal
+                        com.flowstats.app.data.DiagnosisEngine.Level.FAIR -> Warning
+                        com.flowstats.app.data.DiagnosisEngine.Level.POOR -> Orange
+                        com.flowstats.app.data.DiagnosisEngine.Level.BAD -> Danger
+                        else -> Slate
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            m.label,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(60.dp)
+                        )
+                        Box(
+                            Modifier.weight(1f).height(7.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
+                        ) {
+                            m.ratio?.let { r ->
+                                Box(
+                                    Modifier.fillMaxWidth(r.coerceIn(0.02f, 1f)).height(7.dp)
+                                        .clip(RoundedCornerShape(4.dp)).background(c)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(9.dp))
+                        Text(
+                            m.value,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (m.level == com.flowstats.app.data.DiagnosisEngine.Level.UNKNOWN)
+                                MaterialTheme.colorScheme.onSurfaceVariant else c,
+                            modifier = Modifier.width(72.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+
+            // 建议列表
+            Spacer(Modifier.height(6.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)))
+            Spacer(Modifier.height(10.dp))
+            Text("诊断建议", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            report.suggestions.forEach { s ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text(
+                        if (s.warning) "⚠" else "•",
+                        fontSize = 11.sp,
+                        color = if (s.warning) Orange else Blue
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        s.text,
+                        fontSize = 10.5.sp,
+                        lineHeight = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "结论由真实采样值按阈值规则生成；协商速率仅反映链路能力，不代表实测网速。",
+                fontSize = 9.sp,
+                lineHeight = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
 }
