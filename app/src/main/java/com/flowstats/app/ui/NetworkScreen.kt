@@ -40,6 +40,7 @@ import com.flowstats.app.ui.theme.Purple
 import com.flowstats.app.ui.theme.Slate
 import com.flowstats.app.ui.theme.Success
 import com.flowstats.app.ui.theme.Teal
+import com.flowstats.app.ui.theme.Warning
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,7 +52,8 @@ fun NetworkScreen(
     onClearEvents: () -> Unit,
     onOpenLocationSettings: () -> Unit,
     onRefreshPublicIp: () -> Unit = {},
-    onRunDnsCompare: () -> Unit = {}
+    onRunDnsCompare: () -> Unit = {},
+    onClearLinkHistory: () -> Unit = {}
 ) {
     val wifi = state.wifi
     Column(
@@ -374,6 +376,22 @@ fun NetworkScreen(
                 }
             }
 
+            // ── 链路质量历史 ────────────────────────────
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("链路质量历史", modifier = Modifier.weight(1f))
+                if (state.linkHistory.isNotEmpty()) {
+                    Text(
+                        "清空",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { onClearLinkHistory() }.padding(4.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(9.dp))
+            LinkHistoryCard(state.linkHistory)
+
             // ── 事件时间轴 ──────────────────────────────
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -648,4 +666,118 @@ private fun PublicIpRow(state: UiState, onRetry: () -> Unit) {
             )
         }
     }
+}
+
+/**
+ * 链路质量历史卡片。
+ * 每条颜色由协商速率分级，另列 RSSI 与 ICMP 延迟，均为真实采样值。
+ */
+@Composable
+private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySample>) {
+    SoftCard(
+        Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        corner = 22.dp,
+        elevation = 3.dp
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            if (samples.isEmpty()) {
+                Text(
+                    "暂无历史。前台每轮测量（约 2 秒）会自动记录一条协商速率、信号与延迟，保存在本机。",
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+                // 当前（最新一条）汇总
+                val latest = samples.first()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(10.dp).clip(RoundedCornerShape(5.dp))
+                            .background(gradeColor(latest.grade))
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        "当前 ${latest.grade.label}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = gradeColor(latest.grade)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "共 ${samples.size} 条记录",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                val shown = samples.take(12)
+                shown.forEachIndexed { index, s ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            fmt.format(Date(s.time)),
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(66.dp)
+                        )
+                        Box(
+                            Modifier.size(8.dp).clip(RoundedCornerShape(4.dp))
+                                .background(gradeColor(s.grade))
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            s.linkMbps?.let { "$it Mbps" } ?: (if (s.isWifi) "—" else "移动网络"),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        s.rssi?.let {
+                            Text(
+                                "$it dBm",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(56.dp)
+                            )
+                        }
+                        s.latencyMs?.let {
+                            Text(
+                                "${it.toInt()} ms",
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(52.dp)
+                            )
+                        }
+                    }
+                    if (index != shown.lastIndex) RowDivider()
+                }
+                if (samples.size > 12) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "另有 ${samples.size - 12} 条较早记录",
+                        fontSize = 9.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "颜色按协商速率分级，仅反映 Wi-Fi 链路能力，不代表实际下载速度。",
+                    fontSize = 9.5.sp,
+                    lineHeight = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun gradeColor(grade: com.flowstats.app.data.LinkGrade): Color = when (grade) {
+    com.flowstats.app.data.LinkGrade.EXCELLENT -> Success   // 绿
+    com.flowstats.app.data.LinkGrade.GOOD -> Teal            // 青
+    com.flowstats.app.data.LinkGrade.FAIR -> Warning         // 黄
+    com.flowstats.app.data.LinkGrade.POOR -> Orange          // 橙
+    com.flowstats.app.data.LinkGrade.BAD -> Danger           // 红
+    com.flowstats.app.data.LinkGrade.UNKNOWN -> Slate
 }

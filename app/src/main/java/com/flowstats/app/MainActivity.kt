@@ -258,7 +258,8 @@ class MainActivity : ComponentActivity() {
                                 onClearEvents = { viewModel.clearEvents() },
                                 onOpenLocationSettings = { requestWifiPermissions() },
                                 onRefreshPublicIp = { viewModel.refreshPublicIp(force = true) },
-                                onRunDnsCompare = { viewModel.runDnsCompare() }
+                                onRunDnsCompare = { viewModel.runDnsCompare() },
+                                onClearLinkHistory = { viewModel.clearLinkHistory() }
                             )
                             Screen.Settings -> SettingsScreen(
                                 state = ui,

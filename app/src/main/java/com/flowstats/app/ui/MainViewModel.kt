@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.flowstats.app.data.AppUsage
 import com.flowstats.app.data.DeviceStats
 import com.flowstats.app.data.DnsProbe
+import com.flowstats.app.data.LinkQualityHistory
+import com.flowstats.app.data.LinkQualitySample
 import com.flowstats.app.data.MemoryStat
 import com.flowstats.app.data.NetEvent
 import com.flowstats.app.data.NetEventKind
@@ -90,7 +92,9 @@ data class UiState(
     val events: List<NetEvent> = emptyList(),
     val diagnoseOpen: Boolean = false,
     /** 网络页可见时，链路参数按 2 秒节奏强制刷新 */
-    val networkVisible: Boolean = false
+    val networkVisible: Boolean = false,
+    /** 链路质量历史（协商速率 / RSSI / 延迟抖动丢包），每轮测量合成一条 */
+    val linkHistory: List<LinkQualitySample> = emptyList()
 ) {
     val visibleApps: List<AppUsage>
         get() {
@@ -133,7 +137,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             refreshHz = prefs.getInt("refreshHz", 1000),
             showSystem = prefs.getBoolean("showSystem", false),
             hideUnknown = prefs.getBoolean("hideUnknown", false),
-            monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300)
+            monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300),
+            linkHistory = LinkQualityHistory.load(application.applicationContext)
         )
         checkPermission()
         // 网络事件时间轴与设备指标不依赖流量权限，立即开始采集
@@ -253,6 +258,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     dnsMs = dns.second
                 }
             }
+            val wifiNow = _ui.value.wifi
             _ui.value = _ui.value.copy(
                 ping = report,
                 pingRunning = false,
@@ -260,6 +266,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 dnsServer = server,
                 dnsMs = dnsMs
             )
+            // 每轮测量合成一条链路质量历史（全部为真实采样，无字段则留空）
+            val sample = LinkQualitySample(
+                time = System.currentTimeMillis(),
+                linkMbps = wifiNow.rxLinkMbps ?: wifiNow.linkSpeedMbps,
+                rssi = wifiNow.rssi,
+                latencyMs = report.rttAvg.takeIf { report.ok },
+                jitterMs = report.jitter.takeIf { report.ok },
+                lossPct = report.lossPercent.toDouble().takeIf { report.ok },
+                isWifi = wifiNow.isWifi
+            )
+            val updated = LinkQualityHistory.add(getApplication(), sample)
+            _ui.value = _ui.value.copy(linkHistory = updated)
         } finally {
             pingBusy.set(false)
         }
@@ -361,6 +379,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearEvents() = NetEventLog.clear()
+
+    /** 清空链路质量历史 */
+    fun clearLinkHistory() {
+        LinkQualityHistory.clear(getApplication())
+        _ui.value = _ui.value.copy(linkHistory = emptyList())
+    }
 
     /** 刷新频率改变时重启采样 */
     private fun startSpeedMonitor() {
