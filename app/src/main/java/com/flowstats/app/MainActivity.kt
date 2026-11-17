@@ -16,6 +16,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -55,8 +56,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -290,37 +293,36 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // 遮罩：淡入淡出，不再硬切
-                    AnimatedVisibility(
-                        visible = drawerOpen,
-                        enter = fadeIn(tween(220)),
-                        exit = fadeOut(tween(180)),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Box(
-                            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
-                                .clickable { drawerOpen = false }
-                        )
-                    }
-
-                    // 抽屉面板：从左侧弹性滑入 / 快速滑出
-                    AnimatedVisibility(
-                        visible = drawerOpen,
-                        enter = slideInHorizontally(
-                            animationSpec = spring(
+                    // 抽屉覆盖层：遮罩与面板共用一个进度值，保证严格同步、不再出现遮罩丢失
+                    val drawerProgress by animateFloatAsState(
+                        targetValue = if (drawerOpen) 1f else 0f,
+                        animationSpec = if (drawerOpen) {
+                            spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
                                 stiffness = Spring.StiffnessMedium
                             )
-                        ) { -it } + fadeIn(tween(180)),
-                        exit = slideOutHorizontally(
-                            animationSpec = tween(240, easing = FastOutSlowInEasing)
-                        ) { -it } + fadeOut(tween(160)),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Column(
-                            Modifier.width(272.dp).fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.surface)
-                        ) {
+                        } else {
+                            tween(240, easing = FastOutSlowInEasing)
+                        },
+                        label = "drawerProgress"
+                    )
+                    if (drawerProgress > 0.001f) {
+                        val drawerWidthPx = with(LocalDensity.current) { 272.dp.toPx() }
+                        Box(Modifier.fillMaxSize()) {
+                            // 遮罩：alpha 直接由进度驱动，必定绘制
+                            Box(
+                                Modifier.fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.5f * drawerProgress))
+                                    .clickable(enabled = drawerOpen) { drawerOpen = false }
+                            )
+                            // 抽屉面板：X 位移由进度驱动
+                            Column(
+                                Modifier.width(272.dp).fillMaxHeight()
+                                    .graphicsLayer {
+                                        translationX = (drawerProgress - 1f) * drawerWidthPx
+                                    }
+                                    .background(MaterialTheme.colorScheme.surface)
+                            ) {
                                 Box(
                                     Modifier.fillMaxWidth().height(152.dp)
                                         .background(Brush.linearGradient(HeroColors))
@@ -355,6 +357,7 @@ class MainActivity : ComponentActivity() {
                                     lineHeight = 18.sp,
                                     modifier = Modifier.padding(20.dp)
                                 )
+                            }
                         }
                     }
                 }

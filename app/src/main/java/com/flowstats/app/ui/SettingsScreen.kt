@@ -188,7 +188,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 7.dp))
             SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
                 Column {
-                    SettingRow("开源项目", "zJ681/NetPulsePro · GitHub", glyph = "⌂", glyphColor = Teal,
+                    SettingRow("开源项目", "Leftdj/NetPulsePro · GitHub", glyph = "⌂", glyphColor = Teal,
                         trailing = {
                             Text("打开 ›", fontSize = 11.sp, color = Blue,
                                 modifier = Modifier.clickable {

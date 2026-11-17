@@ -21,8 +21,8 @@ sealed interface UpdateResult {
 }
 
 object AppUpdate {
-    const val GITHUB_URL = "https://github.com/zJ681/NetPulsePro"
-    private const val API = "https://api.github.com/repos/zJ681/NetPulsePro/releases/latest"
+    const val GITHUB_URL = "https://github.com/Leftdj/NetPulsePro"
+    private const val API = "https://api.github.com/repos/Leftdj/NetPulsePro/releases/latest"
 
     /**
      * 本项目的真实迭代记录（与 build.gradle.kts 的 versionCode / versionName 对应）。
