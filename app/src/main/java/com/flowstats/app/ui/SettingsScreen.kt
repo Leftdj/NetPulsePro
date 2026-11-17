@@ -75,7 +75,8 @@ fun SettingsScreen(
     onRefreshHz: (Int) -> Unit,
     onToggleSystem: () -> Unit,
     onToggleHideUnknown: () -> Unit,
-    onSetQuota: (Int) -> Unit
+    onSetQuota: (Int) -> Unit,
+    onExport: () -> Unit
 ) {
     val context = LocalContext.current
     val versionName = remember {
@@ -176,6 +177,12 @@ fun SettingsScreen(
                                 Spacer(Modifier.width(4.dp))
                                 Text("›", fontSize = 13.sp, color = Blue)
                             }
+                        })
+                    SettingDivider()
+                    SettingRow("导出报表", "日流量 / 应用排行 / 时段分布 CSV", glyph = "⇩", glyphColor = Teal,
+                        trailing = {
+                            Text("导出 ›", fontSize = 11.sp, color = Blue,
+                                modifier = Modifier.clickable { onExport() })
                         })
                     SettingDivider()
                     SettingRow("版本信息", "更新日志 · 检测更新 · 开源地址", glyph = "ⓘ", glyphColor = Purple,

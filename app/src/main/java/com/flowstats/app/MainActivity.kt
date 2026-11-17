@@ -269,7 +269,8 @@ class MainActivity : ComponentActivity() {
                                 onRefreshHz = { viewModel.setRefreshHz(it) },
                                 onToggleSystem = { viewModel.toggleSystem() },
                                 onToggleHideUnknown = { viewModel.toggleHideUnknown() },
-                                onSetQuota = { viewModel.setQuotaGb(it) }
+                                onSetQuota = { viewModel.setQuotaGb(it) },
+                                onExport = { viewModel.exportCsv { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } }
                             )
                             is Screen.Detail -> AppDetailScreen(
                                 app = current.app,

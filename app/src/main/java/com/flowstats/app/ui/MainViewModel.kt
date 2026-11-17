@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -379,6 +380,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearEvents() = NetEventLog.clear()
+
+    /** 导出三份流量 CSV（日流量/应用排行/时段分布）到下载目录 */
+    fun exportCsv(onResult: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val message = runCatching {
+                val cur = _ui.value
+                val summary = com.flowstats.app.data.CsvExporter.export(
+                    getApplication(), repository, cur.period, cur.dayOffset
+                )
+                "已导出 ${summary.files} 份报表 → ${summary.location}"
+            }.getOrElse { "导出失败：${it.message ?: "未知错误"}" }
+            withContext(Dispatchers.Main) { onResult(message) }
+        }
+    }
 
     /** 清空链路质量历史 */
     fun clearLinkHistory() {
