@@ -59,7 +59,9 @@ fun NetworkScreen(
     onRefreshPublicIp: () -> Unit = {},
     onRunDnsCompare: () -> Unit = {},
     onClearLinkHistory: () -> Unit = {},
-    onExportLogs: () -> Unit = {}
+    onExportLogs: () -> Unit = {},
+    onClearDiagnosticHistory: () -> Unit = {},
+    onExportDiagnostics: () -> Unit = {}
 ) {
     val wifi = state.wifi
     var logViewerOpen by remember { mutableStateOf(false) }
@@ -416,6 +418,20 @@ fun NetworkScreen(
             }
             Spacer(Modifier.height(9.dp))
             LinkHistoryCard(state.linkHistory)
+
+            // ── 检测历史（按天归档）──────────────────────
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("检测历史", modifier = Modifier.weight(1f))
+                if (state.diagnosticHistory.isNotEmpty()) {
+                    Text("导出", fontSize = 10.sp, color = Blue,
+                        modifier = Modifier.clickable { onExportDiagnostics() }.padding(4.dp))
+                    Text("清空", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { onClearDiagnosticHistory() }.padding(start = 8.dp).padding(4.dp))
+                }
+            }
+            Spacer(Modifier.height(9.dp))
+            DiagnosticHistoryCard(state.diagnosticHistory)
 
             // ── 运行日志（事件时间轴）────────────────────
             Spacer(Modifier.height(14.dp))
@@ -1033,6 +1049,108 @@ private fun DiagnosisCard(report: com.flowstats.app.data.DiagnosisEngine.Report)
                 lineHeight = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
+        }
+    }
+}
+
+/** 检测历史卡片：今天/昨天/本周统计 + 按天归档的记录列表 */
+@Composable
+private fun DiagnosticHistoryCard(records: List<com.flowstats.app.data.DiagnosticRecord>) {
+    var showCount by remember { mutableStateOf(10) }
+    val stats = remember(records) { com.flowstats.app.data.DiagnosticHistory.stats(records) }
+    SoftCard(
+        Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        corner = 22.dp,
+        elevation = 3.dp
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+            // 统计三卡
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HistoryStat("今天", stats.today, "最多 30 条", Blue, Modifier.weight(1f))
+                HistoryStat("昨天", stats.yesterday, "最多 30 条", Purple, Modifier.weight(1f))
+                HistoryStat("本周", stats.week, "最多 100 条", Orange, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(10.dp))
+            Text("保留规则：今天最多 30 条、昨天最多 30 条、本周最多 100 条",
+                fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f))
+            Spacer(Modifier.height(10.dp))
+            // 显示条数筛选
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf(10, 30, 100).forEach { n ->
+                    val selected = showCount == n
+                    Box(
+                        Modifier.clip(RoundedCornerShape(9.dp))
+                            .background(if (selected) Blue.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { showCount = n }
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text("显示 $n 条", fontSize = 10.5.sp,
+                            color = if (selected) Blue else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
+            if (records.isEmpty()) {
+                Text(
+                    "暂无检测记录。手动点「重新测量」，或停留网络页每 5 分钟会自动存一条真实快照。",
+                    fontSize = 11.sp, lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                val groups = remember(records) {
+                    com.flowstats.app.data.DiagnosticHistory.groupByDay(records)
+                }
+                var remaining = showCount
+                val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+                groups.forEach { (dayLabel, list) ->
+                    if (remaining <= 0) return@forEach
+                    Text("▸ $dayLabel（${list.size} 条）", fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 6.dp))
+                    list.take(remaining).forEach { r ->
+                        val verdictColor = if (r.ok && r.verdict == "正常") Success else if (!r.ok) Danger else Orange
+                        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(timeFmt.format(Date(r.time)), fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(58.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("${if (r.isWifi) "Wi-Fi" else "移动"} · ${r.host}",
+                                    fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    r.rttAvg?.let { "延迟 ${it.toInt()}ms" } ?: "无延迟数据" +
+                                        (r.lossPercent?.let { " · 丢包 $it%" } ?: ""),
+                                    fontSize = 9.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Box(Modifier.clip(RoundedCornerShape(6.dp)).background(verdictColor.copy(alpha = 0.13f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                Text(r.verdict, fontSize = 9.sp, color = verdictColor, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                    remaining -= list.size
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("仅展示最近 $showCount 条；完整数据可导出 CSV 后用 Excel 查看。",
+                    fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryStat(label: String, count: Int, sub: String, color: Color, modifier: Modifier = Modifier) {
+    Box(modifier.clip(RoundedCornerShape(12.dp))
+        .background(color.copy(alpha = 0.08f))
+        .padding(horizontal = 10.dp, vertical = 9.dp)) {
+        Column {
+            Text(label, fontSize = 10.sp, color = color, fontWeight = FontWeight.Medium)
+            Text("$count 条", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 2.dp))
+            Text(sub, fontSize = 8.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
         }
     }
 }

@@ -260,7 +260,9 @@ class MainActivity : ComponentActivity() {
                                 onRefreshPublicIp = { viewModel.refreshPublicIp(force = true) },
                                 onRunDnsCompare = { viewModel.runDnsCompare() },
                                 onClearLinkHistory = { viewModel.clearLinkHistory() },
-                                onExportLogs = { viewModel.exportLogs { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } }
+                                onExportLogs = { viewModel.exportLogs { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } },
+                                onClearDiagnosticHistory = { viewModel.clearDiagnosticHistory() },
+                                onExportDiagnostics = { viewModel.exportDiagnosticHistory { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } }
                             )
                             Screen.Settings -> SettingsScreen(
                                 state = ui,

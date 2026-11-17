@@ -105,6 +105,34 @@ object CsvExporter {
         return if (v.any { it == ',' || it == '"' || it == '\n' }) "\"$v\"" else v
     }
 
+    /** 导出检测历史 */
+    fun exportDiagnostics(context: Context, records: List<DiagnosticRecord>, onResult: (String) -> Unit) {
+        val sb = StringBuilder()
+        sb.append('\uFEFF')
+        sb.append("NetPulse Pro 检测历史\n")
+        sb.append("记录条数,${records.size}\n\n")
+        sb.append("时间,网络,目标,结果,平均延迟(ms),抖动(ms),丢包(%),DNS服务器,DNS延迟(ms),信号(dBm),协商速率(Mbps),判定\n")
+        val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA)
+        records.forEach { r ->
+            sb.append(listOf(
+                ts.format(java.util.Date(r.time)),
+                if (r.isWifi) "Wi-Fi" else "移动",
+                escape(r.host),
+                if (r.ok) "成功" else "失败",
+                r.rttAvg?.let { "%.1f".format(it) } ?: "",
+                r.jitter?.let { "%.1f".format(it) } ?: "",
+                r.lossPercent?.toString() ?: "",
+                escape(r.dnsServer ?: ""),
+                r.dnsMs?.let { "%.1f".format(it) } ?: "",
+                r.rssi?.toString() ?: "",
+                r.linkMbps?.toString() ?: "",
+                r.verdict
+            ).joinToString(",")).append('\n')
+        }
+        val name = "NetPulse_检测历史_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.CHINA).format(java.util.Date())}.csv"
+        onResult(writeToDownloads(context, name, sb.toString()))
+    }
+
     /** 导出运行日志（时间 / 级别 / 分类 / 内容） */
     fun exportLogs(context: Context, events: List<NetEvent>, onResult: (String) -> Unit) {
         val sb = StringBuilder()

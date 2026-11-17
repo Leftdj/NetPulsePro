@@ -95,7 +95,9 @@ data class UiState(
     /** 网络页可见时，链路参数按 2 秒节奏强制刷新 */
     val networkVisible: Boolean = false,
     /** 链路质量历史（协商速率 / RSSI / 延迟抖动丢包），每轮测量合成一条 */
-    val linkHistory: List<LinkQualitySample> = emptyList()
+    val linkHistory: List<LinkQualitySample> = emptyList(),
+    /** 检测历史：每次诊断 / 每 5 分钟自动快照存一条 */
+    val diagnosticHistory: List<com.flowstats.app.data.DiagnosticRecord> = emptyList()
 ) {
     val visibleApps: List<AppUsage>
         get() {
@@ -139,7 +141,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showSystem = prefs.getBoolean("showSystem", false),
             hideUnknown = prefs.getBoolean("hideUnknown", false),
             monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300),
-            linkHistory = LinkQualityHistory.load(application.applicationContext)
+            linkHistory = LinkQualityHistory.load(application.applicationContext),
+            diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.load(application.applicationContext)
         )
         checkPermission()
         // 网络事件时间轴与设备指标不依赖流量权限，立即开始采集
@@ -231,6 +234,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 runPingRound(quick = true, withDns = pingRound % 3 == 0)
                 pingRound++
+                // 每 150 轮（约 5 分钟）自动存一条检测快照到历史
+                if (pingRound % 150 == 0 && _ui.value.ping.ok) recordDiagnostic(_ui.value.ping)
                 if (_ui.value.networkVisible) {
                     // 网络页：DNS 解析对比每轮自动刷新（内部有 dnsProbing 防重）
                     runDnsCompare()
@@ -311,6 +316,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     summary,
                     if (report.ok) com.flowstats.app.data.EventLevel.SUCCESS else com.flowstats.app.data.EventLevel.ERROR
                 )
+                recordDiagnostic(report)
             } finally {
                 pingBusy.set(false)
             }
@@ -426,6 +432,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearLinkHistory() {
         LinkQualityHistory.clear(getApplication())
         _ui.value = _ui.value.copy(linkHistory = emptyList())
+    }
+
+    /** 记一条真实的检测快照到历史 */
+    private fun recordDiagnostic(report: PingReport) {
+        val cur = _ui.value
+        val rec = com.flowstats.app.data.DiagnosticRecord(
+            time = System.currentTimeMillis(),
+            host = report.host.ifBlank { cur.ping.host.ifBlank { "223.5.5.5" } },
+            rttAvg = report.rttAvg.takeIf { report.ok },
+            jitter = report.jitter.takeIf { report.ok },
+            lossPercent = report.lossPercent.takeIf { report.ok },
+            ok = report.ok,
+            dnsServer = if (report.ok) (cur.dnsServer ?: cur.wifi.dns.firstOrNull()) else null,
+            dnsMs = if (report.ok) cur.dnsMs else null,
+            rssi = cur.wifi.rssi,
+            linkMbps = cur.wifi.rxLinkMbps ?: cur.wifi.linkSpeedMbps,
+            isWifi = cur.wifi.isWifi
+        )
+        _ui.value = _ui.value.copy(
+            diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.add(getApplication(), rec)
+        )
+    }
+
+    fun clearDiagnosticHistory() {
+        com.flowstats.app.data.DiagnosticHistory.clear(getApplication())
+        _ui.value = _ui.value.copy(diagnosticHistory = emptyList())
+    }
+
+    /** 导出检测历史 CSV */
+    fun exportDiagnosticHistory(onResult: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val records = _ui.value.diagnosticHistory
+            if (records.isEmpty()) {
+                withContext(Dispatchers.Main) { onResult("暂无检测历史可导出") }
+                return@launch
+            }
+            var location = ""
+            runCatching {
+                com.flowstats.app.data.CsvExporter.exportDiagnostics(getApplication(), records) { location = it }
+            }.onFailure { location = "导出失败：${it.message ?: "未知错误"}" }
+            withContext(Dispatchers.Main) { onResult(location) }
+        }
     }
 
     /** 刷新频率改变时重启采样 */
