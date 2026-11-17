@@ -83,6 +83,12 @@ fun SettingsScreen(
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull() ?: "3.1"
     }
+    val versionCode = remember {
+        runCatching {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionCode
+        }.getOrDefault(0)
+    }
     var enterTarget by remember { mutableStateOf(0f) }
     var quotaOpen by remember { mutableStateOf(false) }
     var versionOpen by remember { mutableStateOf(false) }
@@ -232,13 +238,18 @@ fun SettingsScreen(
                 checking = true
                 updateResult = null
                 scope.launch {
-                    updateResult = AppUpdate.check()
+                    updateResult = AppUpdate.check(versionCode)
                     checking = false
                 }
             },
             onOpenGithub = {
                 runCatching {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AppUpdate.GITHUB_URL)))
+                }
+            },
+            onDownload = { url ->
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 }
             }
         )

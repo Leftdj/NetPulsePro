@@ -34,7 +34,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -58,7 +57,8 @@ fun VersionInfoDialog(
     result: UpdateResult?,
     onDismiss: () -> Unit,
     onCheck: () -> Unit,
-    onOpenGithub: () -> Unit
+    onOpenGithub: () -> Unit,
+    onDownload: (String) -> Unit
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -164,25 +164,30 @@ fun VersionInfoDialog(
 
                     // 检测结果
                     AnimatedVisibility(visible = checking || result != null) {
-                        val (text, color) = when {
-                            checking -> "正在检测…" to MaterialTheme.colorScheme.onSurfaceVariant
-                            result is UpdateResult.NoReleases -> "该仓库暂无正式发布版本" to Success
-                            result is UpdateResult.Available -> "发现新版本：${result.version}，可前往 GitHub 下载" to Success
-                            result is UpdateResult.Error -> "检测失败：${result.message}" to Danger
-                            else -> "" to MaterialTheme.colorScheme.onSurfaceVariant
+                        when {
+                            checking -> StatusLine("正在检测…", MaterialTheme.colorScheme.onSurfaceVariant)
+                            result is UpdateResult.UpToDate -> StatusLine("✓ 已是最新版本", Success)
+                            result is UpdateResult.Available -> {
+                                StatusLine("发现新版本 v${result.version}（build ${result.code}）", Success)
+                                if (result.notes.isNotBlank()) {
+                                    Text(
+                                        result.notes,
+                                        fontSize = 10.sp,
+                                        lineHeight = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            result is UpdateResult.NoReleases -> StatusLine("下载站暂未配置版本清单", Orange)
+                            result is UpdateResult.Error -> StatusLine("检测失败：${result.message}", Danger)
                         }
-                        Text(
-                            text,
-                            fontSize = 10.5.sp,
-                            color = color,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                        )
                     }
 
                     Spacer(Modifier.height(10.dp))
 
-                    // 检测更新主按钮
+                    // 主按钮：发现新版本时变为「立即下载」，否则为「检测更新」
+                    val available = result as? UpdateResult.Available
                     Box(
                         Modifier.fillMaxWidth().height(46.dp)
                             .clip(RoundedCornerShape(13.dp))
@@ -190,14 +195,23 @@ fun VersionInfoDialog(
                                 if (checking) Brush.horizontalGradient(listOf(Blue.copy(alpha = 0.5f), Purple.copy(alpha = 0.5f)))
                                 else Brush.horizontalGradient(listOf(Blue, Purple))
                             )
-                            .clickable(enabled = !checking) { onCheck() },
+                            .clickable(enabled = !checking) {
+                                if (available != null) onDownload(available.url) else onCheck()
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("⇩", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (available != null) "↓" else "⇩",
+                                color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold
+                            )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                if (checking) "检测中…" else "检测更新",
+                                when {
+                                    checking -> "检测中…"
+                                    available != null -> "立即下载 v${available.version}"
+                                    else -> "检测更新"
+                                },
                                 color = Color.White,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -230,4 +244,15 @@ fun VersionInfoDialog(
             }
         }
     }
+}
+
+@Composable
+private fun StatusLine(text: String, color: Color) {
+    Text(
+        text,
+        fontSize = 10.5.sp,
+        color = color,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    )
 }
