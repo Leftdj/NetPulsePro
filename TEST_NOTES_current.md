@@ -1,0 +1,44 @@
+# 当前构建验证记录
+
+> 本文件记录当前版本（v4.0 / build 19）的真实构建与验证状态。未验证项如实标注，不做填充。
+
+## 版本信息
+
+| 项目 | 值 |
+| --- | --- |
+| 应用名 | NetPulse Pro |
+| 包名 | `com.flowstats.app` |
+| 版本名 | 4.0 |
+| 版本号（versionCode） | 19 |
+| 构建类型 | debug（可安装 APK） |
+| 验证日期 | 2026-11-18 |
+
+## 构建环境
+
+- Android Studio（Android SDK 36）
+- JDK 17+
+- 构建命令：`./gradlew assembleDebug`
+- 产物路径：`app/build/outputs/apk/debug/app-debug.apk`
+
+## 已完成的验证
+
+- [x] Gradle 编译通过，APK 成功产出
+- [x] 用 aapt 校验 APK 版本：`versionCode=19`、`versionName=4.0`
+- [x] 下载站 `version.json` 与 APK 版本一致（19 / 4.0）
+- [x] 应用内版本弹窗、更新日志、检测更新链路已接线并编译通过
+- [x] 五页导航、网络页 2 秒轮询、抽屉遮罩修复均已编译验证
+- [x] 检测历史、运行日志、CSV 导出、智能诊断模块均已编译验证
+
+## 待真机验证项
+
+> 以下功能依赖真实设备传感器/系统权限，本地编译验证无法覆盖，需在真机或模拟器上确认：
+
+- [ ] `PACKAGE_USAGE_STATS` 权限授予后，按 UID 读取各应用真实流量
+- [ ] Android 10+ 的 `ACCESS_FINE_LOCATION` / `NEARBY_WIFI_DEVICES` 授权后读取 Wi-Fi 名称、BSSID、RSSI
+- [ ] 系统 `ping` 的 ICMP 延迟/抖动/丢包测量
+- [ ] 自建 DNS UDP 查询的解析延迟
+- [ ] 月度套餐预警、深色模式、日历选日期的实际交互
+
+## 数据真实性声明
+
+所有数据均来自系统公开接口，不估算、不伪造。Android 未公开的接口项（如 MCS/NSS/SNR、整机 CPU 占用）在界面中明确标注「设备不支持」，不做填充。
