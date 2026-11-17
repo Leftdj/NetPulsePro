@@ -20,7 +20,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.flowstats.app.data.NetEvent
 import com.flowstats.app.data.NetEventKind
 import com.flowstats.app.data.NetworkDiagnostics
@@ -53,9 +58,12 @@ fun NetworkScreen(
     onOpenLocationSettings: () -> Unit,
     onRefreshPublicIp: () -> Unit = {},
     onRunDnsCompare: () -> Unit = {},
-    onClearLinkHistory: () -> Unit = {}
+    onClearLinkHistory: () -> Unit = {},
+    onExportLogs: () -> Unit = {}
 ) {
     val wifi = state.wifi
+    var logViewerOpen by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
     ) {
@@ -409,16 +417,28 @@ fun NetworkScreen(
             Spacer(Modifier.height(9.dp))
             LinkHistoryCard(state.linkHistory)
 
-            // ── 事件时间轴 ──────────────────────────────
+            // ── 运行日志（事件时间轴）────────────────────
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                SectionTitle("网络事件", modifier = Modifier.weight(1f))
+                SectionTitle("运行日志", modifier = Modifier.weight(1f))
                 if (state.events.isNotEmpty()) {
                     Text(
-                        "清空",
+                        "${state.events.size} 条",
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { onClearEvents() }.padding(4.dp)
+                        modifier = Modifier.padding(end = 10.dp)
+                    )
+                    Text(
+                        "导出",
+                        fontSize = 10.sp,
+                        color = Blue,
+                        modifier = Modifier.clickable { onExportLogs() }.padding(4.dp)
+                    )
+                    Text(
+                        "全部 ›",
+                        fontSize = 10.sp,
+                        color = Blue,
+                        modifier = Modifier.clickable { logViewerOpen = true }.padding(start = 6.dp).padding(4.dp)
                     )
                 }
             }
@@ -456,6 +476,105 @@ fun NetworkScreen(
             }
 
             Spacer(Modifier.height(96.dp))
+        }
+    }
+    if (logViewerOpen) {
+        LogViewerDialog(
+            events = state.events,
+            onDismiss = { logViewerOpen = false },
+            onClear = { onClearEvents() },
+            onExport = { onExportLogs() }
+        )
+    }
+    }
+}
+
+/** 全屏运行日志查看页：条数/占用统计、导出、清空、完整日志列表 */
+@Composable
+private fun LogViewerDialog(
+    events: List<NetEvent>,
+    onDismiss: () -> Unit,
+    onClear: () -> Unit,
+    onExport: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Column(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+        ) {
+            // 顶栏
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onDismiss() },
+                    contentAlignment = Alignment.Center
+                ) { Text("‹", fontSize = 26.sp, color = MaterialTheme.colorScheme.onSurface) }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("运行日志", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    Text("最近 ${events.size} 条真实记录", fontSize = 10.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("清空", fontSize = 11.5.sp, color = Danger,
+                    modifier = Modifier.clickable { onClear() }.padding(6.dp))
+            }
+            // 导出按钮
+            Box(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp).height(44.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { onExport() },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("⇩", fontSize = 15.sp, color = Blue)
+                    Spacer(Modifier.width(7.dp))
+                    Text("导出日志", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Blue)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            // 统计条
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("全部日志", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.weight(1f))
+                val bytes = com.flowstats.app.data.NetEventLog.estimatedBytes(events)
+                Text("${events.size} 条 · 占用 ${if (bytes < 1024) "${bytes}B" else "%.1fKB".format(bytes / 1024.0)}",
+                    fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(6.dp))
+            // 列表
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp)
+            ) {
+                SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface,
+                    corner = 20.dp, elevation = 2.dp) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                        if (events.isEmpty()) {
+                            Text("暂无日志。断网、恢复、诊断、DNS、导出等真实动作会自动记录在这里。",
+                                fontSize = 11.sp, lineHeight = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 12.dp))
+                        } else {
+                            events.forEachIndexed { i, e ->
+                                EventRow(e, remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) })
+                                if (i != events.lastIndex) RowDivider()
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
         }
     }
 }
@@ -562,12 +681,12 @@ private fun ConnectionCard(
 
 @Composable
 private fun EventRow(event: NetEvent, fmt: SimpleDateFormat) {
-    val (color, label) = when (event.kind) {
-        NetEventKind.ONLINE -> Success to "恢复"
-        NetEventKind.OFFLINE -> Danger to "断开"
-        NetEventKind.WIFI -> Blue to "Wi-Fi"
-        NetEventKind.CELLULAR -> Purple to "移动"
-        NetEventKind.SIGNAL -> Orange to "信号"
+    val (color, label) = when (event.level) {
+        com.flowstats.app.data.EventLevel.SUCCESS -> Success to "成功"
+        com.flowstats.app.data.EventLevel.ERROR -> Danger to "错误"
+        com.flowstats.app.data.EventLevel.WARN -> Orange to "告警"
+        com.flowstats.app.data.EventLevel.STAT -> Blue to "统计"
+        com.flowstats.app.data.EventLevel.INFO -> Slate to "信息"
     }
     Row(
         Modifier.fillMaxWidth().padding(vertical = 9.dp),

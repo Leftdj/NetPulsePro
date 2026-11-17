@@ -105,6 +105,28 @@ object CsvExporter {
         return if (v.any { it == ',' || it == '"' || it == '\n' }) "\"$v\"" else v
     }
 
+    /** 导出运行日志（时间 / 级别 / 分类 / 内容） */
+    fun exportLogs(context: Context, events: List<NetEvent>, onResult: (String) -> Unit) {
+        val sb = StringBuilder()
+        sb.append('\uFEFF')
+        sb.append("NetPulse Pro 运行日志\n")
+        sb.append("导出时间,${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(java.util.Date())}\n")
+        sb.append("记录条数,${events.size}\n\n")
+        sb.append("时间,级别,分类,内容\n")
+        val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA)
+        events.forEach { e ->
+            sb.append(listOf(
+                ts.format(java.util.Date(e.time)),
+                e.level.label,
+                e.kind.name,
+                escape(e.detail)
+            ).joinToString(",")).append('\n')
+        }
+        val name = "NetPulse_运行日志_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.CHINA).format(java.util.Date())}.csv"
+        val location = writeToDownloads(context, name, sb.toString())
+        onResult(location)
+    }
+
     /** Android 10+ 用 MediaStore 写公共下载目录；低版本写应用外部目录，均无需存储权限 */
     private fun writeToDownloads(context: Context, fileName: String, content: String): String {
         val bytes = content.toByteArray(Charsets.UTF_8)

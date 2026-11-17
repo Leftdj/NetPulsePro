@@ -302,6 +302,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 runCatching { NetworkDiagnostics.dnsCompare(_ui.value.wifi.dns) }
                     .getOrNull()?.let { _ui.value = _ui.value.copy(dnsProbes = it) }
+                // 真实诊断结果记入运行日志
+                val summary = if (report.ok)
+                    "手动诊断完成：延迟 ${report.rttAvg.toInt()} ms / 抖动 ${report.jitter.toInt()} ms / 丢包 ${report.lossPercent}%"
+                else "手动诊断失败：${report.error ?: "无有效响应"}"
+                NetEventLog.log(
+                    com.flowstats.app.data.NetEventKind.DIAGNOSTIC,
+                    summary,
+                    if (report.ok) com.flowstats.app.data.EventLevel.SUCCESS else com.flowstats.app.data.EventLevel.ERROR
+                )
             } finally {
                 pingBusy.set(false)
             }
@@ -389,9 +398,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val summary = com.flowstats.app.data.CsvExporter.export(
                     getApplication(), repository, cur.period, cur.dayOffset
                 )
+                NetEventLog.log(com.flowstats.app.data.NetEventKind.EXPORT, "导出流量报表 ${summary.files} 份 → ${summary.location}")
                 "已导出 ${summary.files} 份报表 → ${summary.location}"
             }.getOrElse { "导出失败：${it.message ?: "未知错误"}" }
             withContext(Dispatchers.Main) { onResult(message) }
+        }
+    }
+
+    /** 导出运行日志 CSV */
+    fun exportLogs(onResult: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val events = _ui.value.events
+            if (events.isEmpty()) {
+                withContext(Dispatchers.Main) { onResult("暂无日志可导出") }
+                return@launch
+            }
+            var location = ""
+            runCatching {
+                com.flowstats.app.data.CsvExporter.exportLogs(getApplication(), events) { location = it }
+                NetEventLog.log(com.flowstats.app.data.NetEventKind.EXPORT, "导出运行日志 ${events.size} 条 → $location")
+            }.onFailure { location = "导出失败：${it.message ?: "未知错误"}" }
+            withContext(Dispatchers.Main) { onResult(location) }
         }
     }
 

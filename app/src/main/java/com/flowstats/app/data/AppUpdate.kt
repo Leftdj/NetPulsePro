@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v3.9", 18, "运行日志升级：本地持久化、分类标签、条数统计、导出日志 CSV 与全屏查看页"),
         ReleaseNote("v3.8", 17, "新增智能诊断：基于真实测量生成综合评估、指标条形图与排查建议"),
         ReleaseNote("v3.7", 16, "新增 CSV 报表导出：日流量、应用排行、时段分布一键导出到下载目录"),
         ReleaseNote("v3.6", 15, "修复检测更新：改读下载站版本清单、支持一键下载；补齐更新日志"),

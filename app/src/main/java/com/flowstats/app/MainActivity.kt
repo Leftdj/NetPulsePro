@@ -259,7 +259,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenLocationSettings = { requestWifiPermissions() },
                                 onRefreshPublicIp = { viewModel.refreshPublicIp(force = true) },
                                 onRunDnsCompare = { viewModel.runDnsCompare() },
-                                onClearLinkHistory = { viewModel.clearLinkHistory() }
+                                onClearLinkHistory = { viewModel.clearLinkHistory() },
+                                onExportLogs = { viewModel.exportLogs { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } }
                             )
                             Screen.Settings -> SettingsScreen(
                                 state = ui,

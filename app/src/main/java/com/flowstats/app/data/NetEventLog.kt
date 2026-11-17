@@ -7,38 +7,66 @@ import android.net.NetworkCapabilities
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
-enum class NetEventKind { ONLINE, OFFLINE, WIFI, CELLULAR, SIGNAL }
+/** 事件分类：对应日志里的语义 */
+enum class NetEventKind {
+    ONLINE, OFFLINE, WIFI, CELLULAR, SIGNAL, DIAGNOSTIC, DNS, EXPORT, IP
+}
+
+/** 日志级别：对应截图里的「信息 / 成功 / 告警 / 错误 / 统计」标签 */
+enum class EventLevel(val label: String) {
+    INFO("信息"), SUCCESS("成功"), WARN("告警"), ERROR("错误"), STAT("统计")
+}
+
+fun NetEventKind.defaultLevel(): EventLevel = when (this) {
+    NetEventKind.ONLINE -> EventLevel.SUCCESS
+    NetEventKind.OFFLINE -> EventLevel.ERROR
+    NetEventKind.WIFI, NetEventKind.CELLULAR, NetEventKind.DIAGNOSTIC,
+    NetEventKind.DNS -> EventLevel.STAT
+    NetEventKind.SIGNAL -> EventLevel.WARN
+    NetEventKind.EXPORT -> EventLevel.SUCCESS
+    NetEventKind.IP -> EventLevel.INFO
+}
 
 data class NetEvent(
     val time: Long,
     val kind: NetEventKind,
-    val detail: String
+    val detail: String,
+    val level: EventLevel = kind.defaultLevel()
 )
 
 /**
- * 网络事件时间轴。
+ * 运行日志（网络事件时间轴）。
  *
- * 记录来源有两类：系统回调（断网/恢复/制式切换）与信号突变采样。
- * 漫游没有系统事件可订阅，通过 BSSID 变化间接推断，所以文案会标注「推断」。
+ * 记录来源均为真实事件：
+ * - 系统回调：断网/恢复/制式切换
+ * - 采样推断：信号突变、BSSID 漫游（文案标注「推断」）
+ * - 用户/自动动作：诊断、DNS 对比、公网 IP、报表导出
+ * 全部本地持久化，重启不丢。
  */
 object NetEventLog {
 
-    private const val MAX_EVENTS = 80
+    private const val MAX_EVENTS = 200
+    private const val PREFS = "net_events"
+    private const val KEY = "events"
     private val _events = MutableStateFlow<List<NetEvent>>(emptyList())
     val events: StateFlow<List<NetEvent>> = _events.asStateFlow()
 
     private var callback: ConnectivityManager.NetworkCallback? = null
     private var lastBssid: String? = null
     private var lastKind: NetEventKind? = null
-
     private var appContext: Context? = null
+    private var signalKey: String? = null
+    private var signalBase: Int? = null
 
     @Synchronized
     fun start(context: Context) {
         if (callback != null) return
         val ctx = context.applicationContext
         appContext = ctx
+        load(ctx)
         val cm = ctx.getSystemService(ConnectivityManager::class.java) ?: return
 
         val cb = object : ConnectivityManager.NetworkCallback() {
@@ -91,14 +119,22 @@ object NetEventLog {
             signalBase = rssi
             push(
                 NetEventKind.SIGNAL,
-                if (delta > 0) "信号增强 ${-rssi} dBm" else "信号减弱 ${-rssi} dBm"
+                if (delta > 0) "信号增强（当前 ${-rssi} dBm）" else "信号减弱（当前 ${-rssi} dBm）"
             )
         }
     }
 
-    private var signalKey: String? = null
-    private var signalBase: Int? = null
+    /** 记录一条真实动作日志（诊断 / DNS / 导出等），由 ViewModel 调用 */
+    @Synchronized
+    fun log(kind: NetEventKind, detail: String, level: EventLevel? = null) {
+        val now = System.currentTimeMillis()
+        val updated = (listOf(NetEvent(now, kind, detail, level ?: kind.defaultLevel())) + _events.value)
+            .take(MAX_EVENTS)
+        _events.value = updated
+        appContext?.let { save(it, updated) }
+    }
 
+    @Synchronized
     private fun push(kind: NetEventKind, detail: String) {
         val list = _events.value
         val now = System.currentTimeMillis()
@@ -107,10 +143,51 @@ object NetEventLog {
         if (last != null && last.kind == kind && now - last.time < 1200) return
         val updated = (listOf(NetEvent(now, kind, detail)) + list).take(MAX_EVENTS)
         _events.value = updated
+        appContext?.let { save(it, updated) }
     }
 
+    @Synchronized
     fun clear() {
         _events.value = emptyList()
+        appContext?.let { save(it, emptyList()) }
+    }
+
+    /** 估算日志占用字节数（detail UTF-8 + 时间戳字符） */
+    fun estimatedBytes(events: List<NetEvent>): Int =
+        events.sumOf { it.detail.toByteArray(Charsets.UTF_8).size + 24 }
+
+    private fun load(context: Context) {
+        runCatching {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY, null) ?: return
+            val arr = JSONArray(raw)
+            val list = mutableListOf<NetEvent>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val kind = runCatching { NetEventKind.valueOf(o.optString("kind")) }
+                    .getOrDefault(NetEventKind.IP)
+                val level = runCatching { EventLevel.valueOf(o.optString("level")) }
+                    .getOrDefault(kind.defaultLevel())
+                list += NetEvent(o.optLong("time"), kind, o.optString("detail"), level)
+            }
+            _events.value = list.take(MAX_EVENTS)
+        }
+    }
+
+    private fun save(context: Context, list: List<NetEvent>) {
+        runCatching {
+            val arr = JSONArray()
+            list.forEach { e ->
+                arr.put(JSONObject().apply {
+                    put("time", e.time)
+                    put("kind", e.kind.name)
+                    put("level", e.level.name)
+                    put("detail", e.detail)
+                })
+            }
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY, arr.toString()).apply()
+        }
     }
 
     fun stop() {
