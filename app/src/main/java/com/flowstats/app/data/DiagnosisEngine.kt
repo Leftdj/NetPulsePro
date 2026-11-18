@@ -113,16 +113,36 @@ object DiagnosisEngine {
         }
 
         // ── 协商速率（仅 Wi-Fi，注明非实测吞吐）──
+        // 2.4G 20MHz 上限约 344 Mbps、5G 80MHz 约 1441 Mbps，不能用一套绝对阈值，按频宽参考上限的比例评级
         if (wifi.isWifi) {
             val link = wifi.rxLinkMbps ?: wifi.linkSpeedMbps
             if (link != null && link > 0) {
-                val lv = when {
-                    link >= 1200 -> Level.EXCELLENT
-                    link >= 600 -> Level.GOOD
-                    link >= 300 -> Level.FAIR
-                    else -> Level.POOR
+                val ceiling = LinkGrading.referenceCeiling(
+                    wifi.channelWidthMhz,
+                    wifi.band,
+                    wifi.maxRxMbps
+                )
+                val grade = LinkGrade.of(link, ceiling)
+                val ratio = if (ceiling != null && ceiling > 0)
+                    (link.toDouble() / ceiling).coerceIn(0.0, 1.0) else 0.5
+                metrics += Metric(
+                    "协商速率",
+                    if (ceiling != null) "$link / $ceiling Mbps" else "$link Mbps",
+                    ratio.toFloat(),
+                    grade.toLevel()
+                )
+                score += grade.toLevel().points(); counted++
+                if (grade == LinkGrade.POOR || grade == LinkGrade.BAD) {
+                    val cfg = buildString {
+                        append(wifi.band ?: "当前频段")
+                        wifi.channelWidthMhz?.let { append(" $it MHz") }
+                    }
+                    suggestions += Suggestion(
+                        true,
+                        "协商速率 $link Mbps 偏低（$cfg 参考上限约 $ceiling Mbps），" +
+                            "常见原因是信号弱、距离远或同频干扰，可尝试靠近路由器或改用 5 GHz 频段。"
+                    )
                 }
-                metrics += Metric("协商速率", "$link Mbps", null, lv)
             } else {
                 metrics += Metric("协商速率", "设备不支持", null, Level.UNKNOWN)
             }
@@ -180,6 +200,15 @@ object DiagnosisEngine {
             else -> "链路状态一般"
         }
         return Report(overall, headline, metrics, suggestions)
+    }
+
+    private fun LinkGrade.toLevel(): Level = when (this) {
+        LinkGrade.EXCELLENT -> Level.EXCELLENT
+        LinkGrade.GOOD -> Level.GOOD
+        LinkGrade.FAIR -> Level.FAIR
+        LinkGrade.POOR -> Level.POOR
+        LinkGrade.BAD -> Level.BAD
+        LinkGrade.UNKNOWN -> Level.UNKNOWN
     }
 
     private fun Level.points() = when (this) {

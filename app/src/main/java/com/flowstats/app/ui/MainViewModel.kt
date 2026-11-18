@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.flowstats.app.data.AppUsage
 import com.flowstats.app.data.DeviceStats
 import com.flowstats.app.data.DnsProbe
+import com.flowstats.app.data.LinkGrading
 import com.flowstats.app.data.LinkQualityHistory
 import com.flowstats.app.data.LinkQualitySample
 import com.flowstats.app.data.MemoryStat
@@ -273,6 +274,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 dnsMs = dnsMs
             )
             // 每轮测量合成一条链路质量历史（全部为真实采样，无字段则留空）
+            // 频段/频宽一起入档：2.4G 与 5G 的协商速率上限不同，评级必须按各自基准算
             val sample = LinkQualitySample(
                 time = System.currentTimeMillis(),
                 linkMbps = wifiNow.rxLinkMbps ?: wifiNow.linkSpeedMbps,
@@ -280,7 +282,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 latencyMs = report.rttAvg.takeIf { report.ok },
                 jitterMs = report.jitter.takeIf { report.ok },
                 lossPct = report.lossPercent.toDouble().takeIf { report.ok },
-                isWifi = wifiNow.isWifi
+                isWifi = wifiNow.isWifi,
+                band = wifiNow.band,
+                widthMhz = wifiNow.channelWidthMhz,
+                ceilingMbps = LinkGrading.referenceCeiling(
+                    wifiNow.channelWidthMhz,
+                    wifiNow.band,
+                    wifiNow.maxRxMbps
+                )
             )
             val updated = LinkQualityHistory.add(getApplication(), sample)
             _ui.value = _ui.value.copy(linkHistory = updated)

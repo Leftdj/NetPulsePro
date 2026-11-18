@@ -822,10 +822,20 @@ private fun PublicIpRow(state: UiState, onRetry: () -> Unit) {
 
 /**
  * 链路质量历史卡片。
- * 每条颜色由协商速率分级，另列 RSSI 与 ICMP 延迟，均为真实采样值。
+ * 颜色按「协商速率 ÷ 该配置参考上限」的比例分级，并标出频段——2.4G 20MHz 上限约 344 Mbps、
+ * 5G 80MHz 约 1441 Mbps，同一个 Mbps 在两个频段下的评级本来就不同，所以要分开看。
+ * RSSI 与 ICMP 延迟均为真实采样值。
  */
 @Composable
 private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySample>) {
+    // 频段筛选：不同频段的速率量级不可直接比较，给一个按频段看的入口
+    val bands = remember(samples) {
+        samples.mapNotNull { it.bandTag }.distinct().sortedBy { if (it == "2.4G") 0 else 1 }
+    }
+    var bandFilter by remember { mutableStateOf<String?>(null) }
+    val visible = remember(samples, bandFilter) {
+        if (bandFilter == null) samples else samples.filter { it.bandTag == bandFilter }
+    }
     SoftCard(
         Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -842,8 +852,8 @@ private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySamp
                 )
             } else {
                 val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+                val latest = visible.firstOrNull() ?: samples.first()
                 // 当前（最新一条）汇总
-                val latest = samples.first()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier.size(10.dp).clip(RoundedCornerShape(5.dp))
@@ -856,41 +866,85 @@ private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySamp
                         fontWeight = FontWeight.SemiBold,
                         color = gradeColor(latest.grade)
                     )
+                    latest.pctOfCeiling?.let {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "上限的 $it%",
+                            fontSize = 9.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "共 ${samples.size} 条记录",
+                        "共 ${visible.size} 条记录",
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                // 当前配置基准说明：让「为什么这个 Mbps 是这个评级」有据可查
+                val basis = buildString {
+                    append(latest.band ?: "频段未知")
+                    latest.widthMhz?.let { append(" · $it MHz") }
+                    latest.ceilingMbps?.let { append(" · 参考上限 $it Mbps") }
+                }
+                Text(
+                    "基准：$basis",
+                    fontSize = 9.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    modifier = Modifier.padding(top = 3.dp, start = 17.dp)
+                )
+                if (bands.size > 1) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        BandChip("全部", bandFilter == null) { bandFilter = null }
+                        bands.forEach { b ->
+                            BandChip(b, bandFilter == b) { bandFilter = b }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
-                val shown = samples.take(12)
+                val shown = visible.take(12)
                 shown.forEachIndexed { index, s ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             fmt.format(Date(s.time)),
                             fontSize = 10.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.width(66.dp)
+                            modifier = Modifier.width(58.dp)
                         )
+                        s.bandTag?.let {
+                            BandChip(it, false, onClick = null)
+                            Spacer(Modifier.width(6.dp))
+                        }
                         Box(
                             Modifier.size(8.dp).clip(RoundedCornerShape(4.dp))
                                 .background(gradeColor(s.grade))
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            s.linkMbps?.let { "$it Mbps" } ?: (if (s.isWifi) "—" else "移动网络"),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Spacer(Modifier.width(7.dp))
+                        Row(
+                            Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                s.linkMbps?.let { "$it Mbps" } ?: (if (s.isWifi) "—" else "移动网络"),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            s.pctOfCeiling?.let {
+                                Text(
+                                    " $it%",
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
                         s.rssi?.let {
                             Text(
                                 "$it dBm",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(56.dp)
+                                modifier = Modifier.width(50.dp)
                             )
                         }
                         s.latencyMs?.let {
@@ -898,29 +952,54 @@ private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySamp
                                 "${it.toInt()} ms",
                                 fontSize = 10.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(52.dp)
+                                modifier = Modifier.width(44.dp)
                             )
                         }
                     }
                     if (index != shown.lastIndex) RowDivider()
                 }
-                if (samples.size > 12) {
+                if (visible.size > 12) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "另有 ${samples.size - 12} 条较早记录",
+                        "另有 ${visible.size - 12} 条较早记录",
                         fontSize = 9.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "颜色按协商速率分级，仅反映 Wi-Fi 链路能力，不代表实际下载速度。",
+                    "颜色按协商速率占该配置参考上限的比例分级（≥85% 优秀、≥65% 良好、≥45% 一般、" +
+                        "≥25% 较差）。2.4 GHz 与 5 GHz 上限不同，同样的 Mbps 评级也不同；" +
+                        "仅反映 Wi-Fi 链路能力，不代表实际下载速度。",
                     fontSize = 9.5.sp,
                     lineHeight = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                 )
             }
         }
+    }
+}
+
+/** 频段小标签 / 筛选胶囊；[onClick] 为 null 时是纯展示标签 */
+@Composable
+private fun BandChip(text: String, selected: Boolean, onClick: (() -> Unit)? = null) {
+    val bg = if (selected) Blue.copy(alpha = 0.14f)
+    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    val fg = if (selected) Blue else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(bg)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text,
+            fontSize = 8.5.sp,
+            lineHeight = 11.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = fg
+        )
     }
 }
 
