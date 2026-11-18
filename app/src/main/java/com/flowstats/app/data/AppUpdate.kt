@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v4.3", 22, "月/年模式的日期选择改为网格：月模式直接点月份、年模式直接点年份，不用逐月翻"),
         ReleaseNote("v4.2", 21, "链路质量历史按频段/频宽评级：2.4G 与 5G 采用各自参考上限，修复 2.4G 344 Mbps 被判为很差"),
         ReleaseNote("v4.1", 20, "应用图标更换为蓝紫渐变信号波形样式"),
         ReleaseNote("v4.0", 19, "新增检测历史：今天/昨天/本周统计、按天归档、自动快照与 CSV 导出"),

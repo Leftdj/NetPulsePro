@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.flowstats.app.data.Period
 import com.flowstats.app.data.Totals
 import com.flowstats.app.ui.theme.Blue
 import com.flowstats.app.ui.theme.Orange
@@ -46,18 +47,22 @@ import com.flowstats.app.ui.theme.Teal
 import java.util.Calendar
 import java.util.Locale
 
+/** 年份下限：再往前没有任何系统流量记录可查，避免无限翻页 */
+private const val MIN_YEAR = 2000
+
 /**
- * 底部月历选择器。
+ * 底部日期选择器，按当前周期自适应：
  *
- * 交互约定（重做后）：
- * - 点某一天立即生效并关闭，不再需要二次点「查看该日流量」；
- * - 翻月不会丢失选中态，但只有落在当前可见月份的那天才高亮；
- * - 「今天」一键回到今天；未来月份与未来日期都点不动；
- * - 每天下方的小条表示当天用量：橙色偏移动、青色偏 WiFi。
+ * - 日 / 周：月历网格，点某天立即生效（下方小条表示当天用量，橙色偏移动、青色偏 WiFi）；
+ * - 月：年 + 12 个月网格，直接点某月跳到该月，不用一个月一个月翻；
+ * - 年：12 年网格，直接点某年。
  *
- * @param anchorMillis 当前查看区间起点，用来定位高亮与初始月份
- * @param heat dayOfMonth -> 当天流量，由 ViewModel 按月缓存后传入
- * @param onVisibleMonth 翻到某个月时回调，用于按需拉取该月热力
+ * 统一约定：点选立即生效并关闭；翻页不会丢失选中态；未来日期/月份/年份点不动。
+ * 月/年模式只负责「选到哪个区间」，具体偏移仍由 ViewModel 用仓库的区间换算得出，口径与左右箭头一致。
+ *
+ * @param anchorMillis 当前查看区间起点，用来定位高亮与初始年月
+ * @param heat dayOfMonth -> 当天流量，由 ViewModel 按月缓存后传入（仅日/周模式使用）
+ * @param onVisibleMonth 翻到某个月时回调，用于按需拉取该月热力（仅日/周模式使用）
  */
 @Composable
 fun DatePickerSheet(
@@ -66,15 +71,20 @@ fun DatePickerSheet(
     heat: Map<Int, Totals>,
     onDismiss: () -> Unit,
     onPick: (year: Int, month: Int, day: Int) -> Unit,
-    onVisibleMonth: (year: Int, month: Int) -> Unit = { _, _ -> }
+    onVisibleMonth: (year: Int, month: Int) -> Unit = { _, _ -> },
+    period: Period = Period.DAY
 ) {
     val today = remember(visible) { Calendar.getInstance(Locale.CHINA) }
     val anchor = remember(anchorMillis, visible) {
         Calendar.getInstance(Locale.CHINA).apply { timeInMillis = anchorMillis }
     }
     // 关键：把 anchorMillis 也作为 key，切换周期后再打开会重新定位到当前区间
-    var year by remember(visible, anchorMillis) { mutableStateOf(anchor.get(Calendar.YEAR)) }
-    var month by remember(visible, anchorMillis) { mutableStateOf(anchor.get(Calendar.MONTH)) }
+    var year by remember(visible, anchorMillis, period) { mutableStateOf(anchor.get(Calendar.YEAR)) }
+    var month by remember(visible, anchorMillis, period) { mutableStateOf(anchor.get(Calendar.MONTH)) }
+    // 年模式的翻页起点：默认让当前年落在第二行，前后都能一眼看到
+    var pageStart by remember(visible, anchorMillis, period) {
+        mutableStateOf(anchor.get(Calendar.YEAR) - 4)
+    }
 
     val selY = anchor.get(Calendar.YEAR)
     val selM = anchor.get(Calendar.MONTH)
@@ -84,8 +94,29 @@ fun DatePickerSheet(
     val currentMonth = today.get(Calendar.MONTH)
     val atCurrentMonth = year * 12 + month >= currentYear * 12 + currentMonth
 
-    LaunchedEffect(visible, year, month) {
-        if (visible) onVisibleMonth(year, month)
+    LaunchedEffect(visible, year, month, period) {
+        if (visible && (period == Period.DAY || period == Period.WEEK)) onVisibleMonth(year, month)
+    }
+
+    val title = when (period) {
+        Period.DAY, Period.WEEK -> "选择日期"
+        Period.MONTH -> "选择月份"
+        Period.YEAR -> "选择年份"
+    }
+    val quickLabel = when (period) {
+        Period.DAY, Period.WEEK -> "今天"
+        Period.MONTH -> "本月"
+        Period.YEAR -> "今年"
+    }
+    val quickPick: () -> Unit = when (period) {
+        Period.DAY, Period.WEEK -> { { onPick(currentYear, currentMonth, today.get(Calendar.DAY_OF_MONTH)) } }
+        Period.MONTH -> { { onPick(currentYear, currentMonth, 1) } }
+        Period.YEAR -> { { onPick(currentYear, 0, 1) } }
+    }
+    val footnote = when (period) {
+        Period.DAY, Period.WEEK -> "点按日期立即查看 · 橙色偏移动、青色偏 WiFi"
+        Period.MONTH -> "点按月份立即查看 · 与左右箭头逐月切换结果一致"
+        Period.YEAR -> "点按年份立即查看 · 只能选到今年"
     }
 
     AnimatedVisibility(
@@ -128,76 +159,67 @@ fun DatePickerSheet(
 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "选择日期", fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                            title, fontSize = 17.sp, fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f)
                         )
                         Box(
                             Modifier.clip(RoundedCornerShape(9.dp))
                                 .background(Blue.copy(alpha = 0.10f))
-                                .clickable {
-                                    onPick(currentYear, currentMonth, today.get(Calendar.DAY_OF_MONTH))
-                                }
+                                .clickable { quickPick() }
                                 .padding(horizontal = 11.dp, vertical = 5.dp)
                         ) {
-                            Text("今天", fontSize = 11.sp, color = Blue, fontWeight = FontWeight.SemiBold)
+                            Text(quickLabel, fontSize = 11.sp, color = Blue, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     Spacer(Modifier.height(10.dp))
 
-                    // 翻月
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        NavArrow("‹", enabled = true) {
-                            val c = Calendar.getInstance(Locale.CHINA).apply { set(year, month, 1) }
-                            c.add(Calendar.MONTH, -1)
-                            year = c.get(Calendar.YEAR)
-                            month = c.get(Calendar.MONTH)
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            "$year 年 ${month + 1} 月", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.width(108.dp), textAlign = TextAlign.Center
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        NavArrow("›", enabled = !atCurrentMonth) {
-                            val c = Calendar.getInstance(Locale.CHINA).apply { set(year, month, 1) }
-                            c.add(Calendar.MONTH, 1)
-                            if (c.get(Calendar.YEAR) * 12 + c.get(Calendar.MONTH) <=
-                                currentYear * 12 + currentMonth
-                            ) {
+                    when (period) {
+                        Period.DAY, Period.WEEK -> DaySection(
+                            year = year, month = month,
+                            today = today,
+                            selY = selY, selM = selM, selD = selD,
+                            atCurrentMonth = atCurrentMonth,
+                            heat = heat,
+                            onPrevMonth = {
+                                val c = Calendar.getInstance(Locale.CHINA).apply { set(year, month, 1) }
+                                c.add(Calendar.MONTH, -1)
                                 year = c.get(Calendar.YEAR)
                                 month = c.get(Calendar.MONTH)
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
+                            },
+                            onNextMonth = {
+                                val c = Calendar.getInstance(Locale.CHINA).apply { set(year, month, 1) }
+                                c.add(Calendar.MONTH, 1)
+                                if (c.get(Calendar.YEAR) * 12 + c.get(Calendar.MONTH) <=
+                                    currentYear * 12 + currentMonth
+                                ) {
+                                    year = c.get(Calendar.YEAR)
+                                    month = c.get(Calendar.MONTH)
+                                }
+                            },
+                            onPick = onPick
+                        )
 
-                    Row(Modifier.fillMaxWidth()) {
-                        listOf("一", "二", "三", "四", "五", "六", "日").forEach {
-                            Text(
-                                it, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
+                        Period.MONTH -> MonthSection(
+                            year = year,
+                            selY = selY, selM = selM,
+                            currentYear = currentYear, currentMonth = currentMonth,
+                            onPrevYear = { if (year > MIN_YEAR) year -= 1 },
+                            onNextYear = { if (year < currentYear) year += 1 },
+                            onPickMonth = { m -> onPick(year, m, 1) }
+                        )
 
-                    CalendarGrid(
-                        year = year, month = month,
-                        today = today,
-                        selY = selY, selM = selM, selD = selD,
-                        heat = heat,
-                        onPick = onPick
-                    )
+                        Period.YEAR -> YearSection(
+                            pageStart = pageStart,
+                            selY = selY, currentYear = currentYear,
+                            onPrevPage = { if (pageStart - 12 >= MIN_YEAR) pageStart -= 12 },
+                            onNextPage = { if (pageStart + 12 <= currentYear) pageStart += 12 },
+                            onPickYear = { y -> onPick(y, 0, 1) }
+                        )
+                    }
 
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "点按日期立即查看 · 橙色偏移动、青色偏 WiFi",
+                        footnote,
                         fontSize = 9.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.fillMaxWidth(),
@@ -207,6 +229,198 @@ fun DatePickerSheet(
                 }
             }
         }
+    }
+}
+
+/** 日 / 周模式：月历网格 */
+@Composable
+private fun DaySection(
+    year: Int, month: Int,
+    today: Calendar,
+    selY: Int, selM: Int, selD: Int,
+    atCurrentMonth: Boolean,
+    heat: Map<Int, Totals>,
+    onPrevMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onPick: (Int, Int, Int) -> Unit
+) {
+    // 翻月
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        NavArrow("‹", enabled = true) { onPrevMonth() }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "$year 年 ${month + 1} 月", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.width(108.dp), textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.width(10.dp))
+        NavArrow("›", enabled = !atCurrentMonth) { onNextMonth() }
+    }
+    Spacer(Modifier.height(10.dp))
+
+    Row(Modifier.fillMaxWidth()) {
+        listOf("一", "二", "三", "四", "五", "六", "日").forEach {
+            Text(
+                it, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+
+    CalendarGrid(
+        year = year, month = month,
+        today = today,
+        selY = selY, selM = selM, selD = selD,
+        heat = heat,
+        onPick = onPick
+    )
+}
+
+/** 月模式：年 + 12 个月网格，直接命中目标月 */
+@Composable
+private fun MonthSection(
+    year: Int,
+    selY: Int, selM: Int,
+    currentYear: Int, currentMonth: Int,
+    onPrevYear: () -> Unit,
+    onNextYear: () -> Unit,
+    onPickMonth: (Int) -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        NavArrow("‹", enabled = year > MIN_YEAR) { onPrevYear() }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "$year 年", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.width(108.dp), textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.width(10.dp))
+        NavArrow("›", enabled = year < currentYear) { onNextYear() }
+    }
+    Spacer(Modifier.height(12.dp))
+
+    // 4 列 × 3 行：3/6/9/12 月各占行末，扫读顺序和日历一致
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (row in 0 until 3) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (col in 0 until 4) {
+                    val m = row * 4 + col
+                    val isFuture = year * 12 + m > currentYear * 12 + currentMonth
+                    val isSelected = year == selY && m == selM
+                    val isCurrent = year == currentYear && m == currentMonth
+                    PickCell(
+                        label = "${m + 1} 月",
+                        selected = isSelected,
+                        isCurrent = isCurrent,
+                        enabled = !isFuture,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onPickMonth(m) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 年模式：12 年网格，按页翻动 */
+@Composable
+private fun YearSection(
+    pageStart: Int,
+    selY: Int, currentYear: Int,
+    onPrevPage: () -> Unit,
+    onNextPage: () -> Unit,
+    onPickYear: (Int) -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        NavArrow("‹", enabled = pageStart - 12 >= MIN_YEAR) { onPrevPage() }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "$pageStart – ${pageStart + 11}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.width(126.dp), textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.width(10.dp))
+        NavArrow("›", enabled = pageStart + 12 <= currentYear) { onNextPage() }
+    }
+    Spacer(Modifier.height(12.dp))
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (row in 0 until 3) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (col in 0 until 4) {
+                    val y = pageStart + row * 4 + col
+                    PickCell(
+                        label = "$y",
+                        selected = y == selY,
+                        isCurrent = y == currentYear,
+                        enabled = y <= currentYear,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onPickYear(y) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 月/年网格里的单元格：选中为蓝紫渐变，今年/本月用淡底标记 */
+@Composable
+private fun PickCell(
+    label: String,
+    selected: Boolean,
+    isCurrent: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier
+            .height(46.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                when {
+                    selected -> Brush.horizontalGradient(listOf(Blue, Purple))
+                    isCurrent -> Brush.horizontalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        )
+                    )
+                    else -> Brush.horizontalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        )
+                    )
+                }
+            )
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            fontSize = 12.sp,
+            fontWeight = if (selected || isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+            color = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
+                selected -> Color.White
+                else -> MaterialTheme.colorScheme.onSurface
+            }
+        )
     }
 }
 

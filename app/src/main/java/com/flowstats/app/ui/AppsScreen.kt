@@ -286,7 +286,8 @@ fun AppsScreen(
             heat = state.monthHeat,
             onDismiss = { calendarOpen = false },
             onPick = { y, m, d -> onPickDate(y, m, d); calendarOpen = false },
-            onVisibleMonth = onCalendarMonth
+            onVisibleMonth = onCalendarMonth,
+            period = state.period
         )
     }
 }
