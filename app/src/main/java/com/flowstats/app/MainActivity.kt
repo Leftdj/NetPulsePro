@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -54,10 +55,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -394,42 +404,141 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun BottomNav(current: Screen, onSelect: (Screen) -> Unit) {
     val items = listOf(
-        Triple("总览", "◎", Screen.Overview),
-        Triple("流量", "▤", Screen.Flow),
-        Triple("应用", "▦", Screen.Apps),
-        Triple("网络", "⌁", Screen.Network),
-        Triple("设置", "⚙", Screen.Settings)
+        "总览" to Screen.Overview,
+        "流量" to Screen.Flow,
+        "应用" to Screen.Apps,
+        "网络" to Screen.Network,
+        "设置" to Screen.Settings
     )
-    Row(
-        Modifier.fillMaxWidth().height(78.dp)
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(bottom = 12.dp)
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
     ) {
-        items.forEach { (label, icon, target) ->
-            val on = current == target
-            Column(
-                Modifier.weight(1f).fillMaxHeight().clickable { onSelect(target) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Box(
-                    Modifier.clip(RoundedCornerShape(10.dp))
-                        .background(if (on) Blue.copy(alpha = 0.12f) else Color.Transparent)
-                        .padding(horizontal = 12.dp, vertical = 3.dp)
+        // 极细分割线代替阴影，和卡片风格保持一致
+        Box(
+            Modifier.fillMaxWidth().height(0.5.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f))
+        )
+        Row(
+            Modifier.fillMaxWidth().height(64.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items.forEach { (label, target) ->
+                val on = current == target
+                val tint by animateColorAsState(
+                    targetValue = if (on) Blue else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = tween(220), label = "navTint"
+                )
+                val active by animateFloatAsState(
+                    targetValue = if (on) 1f else 0f,
+                    animationSpec = tween(220), label = "navActive"
+                )
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().clickable { onSelect(target) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
+                    Box(
+                        Modifier.size(width = 40.dp, height = 26.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(Blue.copy(alpha = 0.12f * active)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        NavIcon(target, tint, Modifier.size(21.dp))
+                    }
+                    Spacer(Modifier.height(3.dp))
                     Text(
-                        icon,
-                        fontSize = 18.sp,
-                        color = if (on) Blue else MaterialTheme.colorScheme.onSurfaceVariant
+                        label,
+                        fontSize = 9.5.sp,
+                        color = tint,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal
                     )
                 }
-                Text(
-                    label,
-                    fontSize = 9.5.sp,
-                    color = if (on) Blue else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal
+            }
+        }
+    }
+}
+
+/** 底部导航图标：用 Canvas 画简洁线性图标，替代之前的 ◎ ▤ ▦ ⌁ ⚙ 字符 */
+@Composable
+private fun NavIcon(target: Screen, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val sw = w * 0.085f
+        val stroke = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val cx = w / 2f
+        val cy = h / 2f
+        when (target) {
+            Screen.Overview -> {
+                // 仪表盘：下方开口圆弧 + 指针
+                val r = w * 0.40f
+                drawArc(
+                    color = color, startAngle = 140f, sweepAngle = 260f, useCenter = false,
+                    topLeft = Offset(cx - r, cy - r), size = Size(r * 2, r * 2), style = stroke
+                )
+                val a = Math.toRadians(312.0)
+                drawLine(
+                    color,
+                    Offset(cx, cy),
+                    Offset(cx + (r * 0.7f * cos(a)).toFloat(), cy + (r * 0.7f * sin(a)).toFloat()),
+                    strokeWidth = sw, cap = StrokeCap.Round
                 )
             }
+
+            Screen.Flow -> {
+                // 柱状图：三根递增竖条
+                val base = h * 0.84f
+                listOf(0.30f to 0.30f, 0.50f to 0.48f, 0.70f to 0.66f).forEach { (x, len) ->
+                    drawLine(
+                        color, Offset(w * x, base), Offset(w * x, base - h * len),
+                        strokeWidth = w * 0.13f, cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            Screen.Apps -> {
+                // 卡片：圆角矩形 + 一条内线
+                val l = w * 0.12f
+                drawRoundRect(
+                    color, topLeft = Offset(l, h * 0.19f), size = Size(w - l * 2, h * 0.62f),
+                    cornerRadius = CornerRadius(w * 0.15f), style = stroke
+                )
+                drawLine(
+                    color, Offset(l + w * 0.11f, h * 0.40f), Offset(w - l - w * 0.11f, h * 0.40f),
+                    strokeWidth = sw, cap = StrokeCap.Round
+                )
+            }
+
+            Screen.Network -> {
+                // Wi-Fi：两段同心圆弧 + 底部圆点
+                val baseY = h * 0.80f
+                listOf(0.44f, 0.27f).forEach { rr ->
+                    val r = w * rr
+                    drawArc(
+                        color = color, startAngle = 205f, sweepAngle = 130f, useCenter = false,
+                        topLeft = Offset(cx - r, baseY - r), size = Size(r * 2, r * 2), style = stroke
+                    )
+                }
+                drawCircle(color, radius = w * 0.055f, center = Offset(cx, baseY))
+            }
+
+            Screen.Settings -> {
+                // 齿轮：内圆 + 8 根齿
+                val rIn = w * 0.22f
+                val rOut = w * 0.40f
+                drawCircle(color, radius = rIn, center = Offset(cx, cy), style = stroke)
+                for (i in 0 until 8) {
+                    val a = Math.toRadians(i * 45.0)
+                    drawLine(
+                        color,
+                        Offset(cx + (rIn * 1.4f * cos(a)).toFloat(), cy + (rIn * 1.4f * sin(a)).toFloat()),
+                        Offset(cx + (rOut * cos(a)).toFloat(), cy + (rOut * sin(a)).toFloat()),
+                        strokeWidth = sw, cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            else -> Unit
         }
     }
 }

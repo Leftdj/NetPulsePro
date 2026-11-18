@@ -144,7 +144,7 @@ fun InsightsScreen(
                         ) {
                             Box(
                                 Modifier.size(22.dp).clip(RoundedCornerShape(7.dp))
-                                    .background(if (i == 0) Brush.linearGradient(listOf(Orange, Color(0xFFFF6B9D))) else Brush.linearGradient(listOf(Blue, Purple))),
+                                    .background(Brush.linearGradient(rankColors(i))),
                                 contentAlignment = Alignment.Center
                             ) { Text("${i + 1}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                             Spacer(Modifier.width(9.dp))
@@ -161,6 +161,15 @@ fun InsightsScreen(
             Spacer(Modifier.height(20.dp))
         }
     }
+}
+
+/** 排行序号配色：前三名金银铜，4、5 名用品牌青紫，保证每位颜色都不同、一眼能区分 */
+private fun rankColors(index: Int): List<Color> = when (index) {
+    0 -> listOf(Color(0xFFFFC24B), Color(0xFFF59E0B))
+    1 -> listOf(Color(0xFFB9C6D8), Color(0xFF7C8DA6))
+    2 -> listOf(Color(0xFFE8A87C), Color(0xFFC2703C))
+    3 -> listOf(Color(0xFF35D6C6), Color(0xFF0E9F8E))
+    else -> listOf(Color(0xFF8B93F8), Color(0xFF5A5BD6))
 }
 
 @Composable

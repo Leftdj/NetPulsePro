@@ -517,10 +517,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setPeriod(period: Period) {
         val current = _ui.value
         if (current.period == period) return
-        // 关键修复：偏移量单位随周期变化（周/月/年），
-        // 必须把「当前查看区间的起始日」作为锚点重新换算，不能沿用旧偏移。
-        val anchor = repository.rangeFor(current.period, current.dayOffset).first
-        val offset = repository.offsetFor(period, anchor)
+        // 关键修复：偏移量单位随周期变化（周/月/年），必须重新换算。
+        // 锚点不能用「当前区间起点」——年区间起点是 1 月 1 日，从年切回日就会落到年初（那里通常没有记录，
+        // 列表一片空白）。改为：当前区间若包含今天就以今天为锚点，否则才用区间起点，
+        // 这样「今年 → 日」回到今天、「2025 年 → 日」回到 2025-01-01，两个方向都符合直觉。
+        val (start, end) = repository.rangeFor(current.period, current.dayOffset)
+        val now = System.currentTimeMillis()
+        val anchorMillis = if (now in start until end) now else start
+        val offset = repository.offsetFor(period, anchorMillis)
         _ui.value = current.copy(
             period = period,
             dayOffset = offset,
