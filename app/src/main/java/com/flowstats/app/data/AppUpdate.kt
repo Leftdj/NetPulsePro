@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v4.1", 20, "应用图标更换为蓝紫渐变信号波形样式"),
         ReleaseNote("v4.0", 19, "新增检测历史：今天/昨天/本周统计、按天归档、自动快照与 CSV 导出"),
         ReleaseNote("v3.9", 18, "运行日志升级：本地持久化、分类标签、条数统计、导出日志 CSV 与全屏查看页"),
         ReleaseNote("v3.8", 17, "新增智能诊断：基于真实测量生成综合评估、指标条形图与排查建议"),
