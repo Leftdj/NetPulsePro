@@ -16,11 +16,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowstats.app.data.Period
@@ -138,14 +142,19 @@ fun DatePickerSheet(
                 enter = slideInVertically(tween(300)) { it },
                 exit = slideOutVertically(tween(250)) { it }
             ) {
+                val maxSheetHeight = with(LocalConfiguration.current) {
+                    (screenHeightDp * 0.92f).dp
+                }
                 Column(
                     Modifier.fillMaxWidth()
+                        .heightIn(max = maxSheetHeight)
                         .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                         .background(MaterialTheme.colorScheme.surface)
                         .clickable(
                             interactionSource = androidx.compose.foundation.interaction.MutableInteractionSource(),
                             indication = null, onClick = {}
                         )
+                        .verticalScroll(rememberScrollState())
                         .navigationBarsPadding()
                         .padding(horizontal = 18.dp, vertical = 14.dp)
                 ) {
@@ -389,7 +398,7 @@ private fun PickCell(
 ) {
     Box(
         modifier
-            .height(46.dp)
+            .height(44.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(
                 when {
@@ -463,7 +472,7 @@ private fun CalendarGrid(
 
     Column {
         for (r in 0 until rows) {
-            Row(Modifier.fillMaxWidth().height(42.dp)) {
+            Row(Modifier.fillMaxWidth().height(40.dp)) {
                 for (c in 0 until 7) {
                     val index = r * 7 + c
                     val dayNum = index - dow + 1

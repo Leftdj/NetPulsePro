@@ -67,12 +67,13 @@ fun AppsScreen(
     onQuery: (String) -> Unit,
     onSort: (SortBy) -> Unit,
     onFilter: (AppFilter) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    calendarOpen: Boolean = false,
+    onCalendarOpenChange: (Boolean) -> Unit = {}
 ) {
     var sortOpen by remember { mutableStateOf(false) }
-    var calendarOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = calendarOpen || sortOpen) {
-        calendarOpen = false
+        onCalendarOpenChange(false)
         sortOpen = false
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -204,7 +205,7 @@ fun AppsScreen(
                 Row(
                     Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                        .clickable { calendarOpen = true }
+                        .clickable { onCalendarOpenChange(true) }
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
@@ -280,15 +281,6 @@ fun AppsScreen(
             }
         }
 
-        DatePickerSheet(
-            visible = calendarOpen,
-            anchorMillis = state.viewDate,
-            heat = state.monthHeat,
-            onDismiss = { calendarOpen = false },
-            onPick = { y, m, d -> onPickDate(y, m, d); calendarOpen = false },
-            onVisibleMonth = onCalendarMonth,
-            period = state.period
-        )
     }
 }
 

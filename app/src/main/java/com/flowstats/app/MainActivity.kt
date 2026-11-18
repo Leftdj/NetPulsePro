@@ -70,6 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.flowstats.app.data.AppUsage
 import com.flowstats.app.ui.AppDetailScreen
 import com.flowstats.app.ui.AppsScreen
+import com.flowstats.app.ui.DatePickerSheet
 import com.flowstats.app.ui.InsightsScreen
 import com.flowstats.app.ui.MainViewModel
 import com.flowstats.app.ui.NetworkScreen
@@ -101,6 +102,8 @@ class MainActivity : ComponentActivity() {
                 var screen: Screen by remember { mutableStateOf<Screen>(Screen.Overview) }
                 var detailFrom: Screen by remember { mutableStateOf<Screen>(Screen.Apps) }
                 var drawerOpen by remember { mutableStateOf(false) }
+                // 日期弹窗状态提升到这里：弹窗必须在页面内容与底部导航之后绘制，否则会被导航栏压住
+                var calendarOpen by remember { mutableStateOf(false) }
                 var lastBackPress by remember { mutableStateOf(0L) }
                 val context = LocalContext.current
 
@@ -250,7 +253,9 @@ class MainActivity : ComponentActivity() {
                                 onQuery = { viewModel.setQuery(it) },
                                 onSort = { viewModel.setSort(it) },
                                 onFilter = { viewModel.setFilter(it) },
-                                onRefresh = { viewModel.reload() }
+                                onRefresh = { viewModel.reload() },
+                                calendarOpen = calendarOpen,
+                                onCalendarOpenChange = { calendarOpen = it }
                             )
                             Screen.Network -> NetworkScreen(
                                 state = ui,
@@ -286,7 +291,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     AnimatedVisibility(
-                        visible = screen !is Screen.Detail,
+                        // 日期弹窗打开时收起底部导航，避免被遮罩压成半灰、也避免与弹窗抢位置
+                        visible = screen !is Screen.Detail && !calendarOpen,
                         enter = slideInVertically(tween(300)) { it },
                         exit = slideOutVertically(tween(250)) { it },
                         modifier = Modifier.align(Alignment.BottomCenter)
@@ -365,7 +371,21 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    // 日期选择弹窗：根层级、最后绘制，确保盖住底部导航栏
+                    DatePickerSheet(
+                        visible = calendarOpen,
+                        anchorMillis = ui.viewDate,
+                        heat = ui.monthHeat,
+                        onDismiss = { calendarOpen = false },
+                        onPick = { y, m, d ->
+                            viewModel.pickDate(y, m, d)
+                            calendarOpen = false
+                        },
+                        onVisibleMonth = { y, m -> viewModel.loadMonthHeat(y, m) },
+                        period = ui.period
+                    )
                 }
+
             }
         }
     }
