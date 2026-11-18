@@ -61,7 +61,11 @@ fun NetworkScreen(
     onClearLinkHistory: () -> Unit = {},
     onExportLogs: () -> Unit = {},
     onClearDiagnosticHistory: () -> Unit = {},
-    onExportDiagnostics: () -> Unit = {}
+    onExportDiagnostics: () -> Unit = {},
+    onScanWifi: () -> Unit = {},
+    onRequestWifiPermissions: () -> Unit = {},
+    onSaveSignalSpot: (String) -> Unit = {},
+    onDeleteSignalSpot: (Long) -> Unit = {}
 ) {
     val wifi = state.wifi
     var logViewerOpen by remember { mutableStateOf(false) }
@@ -139,6 +143,27 @@ fun NetworkScreen(
                         Spacer(Modifier.height(8.dp))
                     }
                 }
+            }
+
+            // ── Wi-Fi 信道分析（AP 扫描，不是频谱仪）─────
+            if (wifi.isWifi) {
+                Spacer(Modifier.height(14.dp))
+                SectionTitle("Wi-Fi 信道分析", trailing = "AP 扫描 · 非频谱仪")
+                Spacer(Modifier.height(9.dp))
+                WifiChannelCard(
+                    report = state.wifiScanReport,
+                    history = state.wifiScanHistory,
+                    scanning = state.wifiScanning,
+                    onScan = onScanWifi,
+                    onRequestPermission = onRequestWifiPermissions
+                )
+                Spacer(Modifier.height(14.dp))
+                SignalRecordCard(
+                    samples = state.linkHistory,
+                    spots = state.signalSpots,
+                    onSave = onSaveSignalSpot,
+                    onDelete = onDeleteSignalSpot
+                )
             }
 
             // ── 网络参数 ────────────────────────────────

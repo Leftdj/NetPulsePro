@@ -17,12 +17,17 @@ import com.flowstats.app.data.NetworkDiagnostics
 import com.flowstats.app.data.Period
 import com.flowstats.app.data.PingReport
 import com.flowstats.app.data.PublicIpInfo
+import com.flowstats.app.data.SignalSpot
+import com.flowstats.app.data.SignalSpotStore
 import com.flowstats.app.data.SpeedMonitor
 import com.flowstats.app.data.SpeedSample
 import com.flowstats.app.data.Totals
 import com.flowstats.app.data.UsageRepository
 import com.flowstats.app.data.WifiDetail
 import com.flowstats.app.data.WifiInfoProvider
+import com.flowstats.app.data.WifiChannelScanner
+import com.flowstats.app.data.WifiScanReport
+import com.flowstats.app.data.ScanSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -98,7 +103,13 @@ data class UiState(
     /** 链路质量历史（协商速率 / RSSI / 延迟抖动丢包），每轮测量合成一条 */
     val linkHistory: List<LinkQualitySample> = emptyList(),
     /** 检测历史：每次诊断 / 每 5 分钟自动快照存一条 */
-    val diagnosticHistory: List<com.flowstats.app.data.DiagnosticRecord> = emptyList()
+    val diagnosticHistory: List<com.flowstats.app.data.DiagnosticRecord> = emptyList(),
+    /** Wi-Fi 信道分析：系统扫描结果与分析结论 */
+    val wifiScanReport: WifiScanReport? = null,
+    val wifiScanHistory: List<ScanSummary> = emptyList(),
+    val wifiScanning: Boolean = false,
+    /** 不同位置的信号质量快照 */
+    val signalSpots: List<SignalSpot> = emptyList()
 ) {
     val visibleApps: List<AppUsage>
         get() {
@@ -143,6 +154,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             hideUnknown = prefs.getBoolean("hideUnknown", false),
             monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300),
             linkHistory = LinkQualityHistory.load(application.applicationContext),
+            wifiScanHistory = WifiChannelScanner.loadHistory(application.applicationContext),
+            signalSpots = SignalSpotStore.load(application.applicationContext),
             diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.load(application.applicationContext)
         )
         checkPermission()
@@ -295,6 +308,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _ui.value = _ui.value.copy(linkHistory = updated)
         } finally {
             pingBusy.set(false)
+        }
+    }
+
+    /** 保存当前位置的信号快照：取最近 30 条真实 RSSI 采样统计，样本不足不生成 */
+    fun saveSignalSpot(label: String) {
+        val values = _ui.value.linkHistory.mapNotNull { it.rssi }.take(30)
+        if (values.isEmpty()) return
+        val spot = SignalSpot(
+            time = System.currentTimeMillis(),
+            label = label,
+            ssid = _ui.value.wifi.ssid,
+            avgRssi = (values.sum() / values.size.toDouble()).toInt(),
+            minRssi = values.minOrNull() ?: values.first(),
+            count = values.size
+        )
+        _ui.value = _ui.value.copy(signalSpots = SignalSpotStore.add(getApplication(), spot))
+    }
+
+    fun deleteSignalSpot(time: Long) {
+        _ui.value = _ui.value.copy(
+            signalSpots = SignalSpotStore.remove(getApplication(), time)
+        )
+    }
+
+    /** 手动扫描周围 Wi-Fi AP：读取系统扫描缓存并请求刷新；权限不足/被节流时如实报错 */
+    fun scanWifiChannels() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _ui.value = _ui.value.copy(wifiScanning = true)
+            val report = runCatching {
+                WifiChannelScanner.scan(getApplication(), _ui.value.wifi.bssid)
+            }.getOrElse { WifiScanReport(error = "扫描失败：${it.message ?: "未知错误"}") }
+            val history = WifiChannelScanner.record(getApplication(), report)
+            _ui.value = _ui.value.copy(
+                wifiScanReport = report,
+                wifiScanHistory = history,
+                wifiScanning = false
+            )
         }
     }
 

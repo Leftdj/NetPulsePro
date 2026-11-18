@@ -277,7 +277,11 @@ class MainActivity : ComponentActivity() {
                                 onClearLinkHistory = { viewModel.clearLinkHistory() },
                                 onExportLogs = { viewModel.exportLogs { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } },
                                 onClearDiagnosticHistory = { viewModel.clearDiagnosticHistory() },
-                                onExportDiagnostics = { viewModel.exportDiagnosticHistory { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } }
+                                onExportDiagnostics = { viewModel.exportDiagnosticHistory { msg -> Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show() } },
+                                onScanWifi = { viewModel.scanWifiChannels() },
+                                onRequestWifiPermissions = { requestWifiPermissions() },
+                                onSaveSignalSpot = { viewModel.saveSignalSpot(it) },
+                                onDeleteSignalSpot = { viewModel.deleteSignalSpot(it) }
                             )
                             Screen.Settings -> SettingsScreen(
                                 state = ui,
