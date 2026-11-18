@@ -281,7 +281,12 @@ class MainActivity : ComponentActivity() {
                                 onScanWifi = { viewModel.scanWifiChannels() },
                                 onRequestWifiPermissions = { requestWifiPermissions() },
                                 onSaveSignalSpot = { viewModel.saveSignalSpot(it) },
-                                onDeleteSignalSpot = { viewModel.deleteSignalSpot(it) }
+                                onDeleteSignalSpot = { viewModel.deleteSignalSpot(it) },
+                                onScanLan = { viewModel.scanLan() },
+                                onRunChecks = { viewModel.runAdvancedChecks() },
+                                onRunTargets = { viewModel.runTargetChecks() },
+                                onAddTarget = { l, h -> viewModel.addTarget(l, h) },
+                                onRemoveTarget = { viewModel.removeTarget(it) }
                             )
                             Screen.Settings -> SettingsScreen(
                                 state = ui,

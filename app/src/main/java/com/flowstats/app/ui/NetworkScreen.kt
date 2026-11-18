@@ -65,7 +65,12 @@ fun NetworkScreen(
     onScanWifi: () -> Unit = {},
     onRequestWifiPermissions: () -> Unit = {},
     onSaveSignalSpot: (String) -> Unit = {},
-    onDeleteSignalSpot: (Long) -> Unit = {}
+    onDeleteSignalSpot: (Long) -> Unit = {},
+    onScanLan: () -> Unit = {},
+    onRunChecks: () -> Unit = {},
+    onRunTargets: () -> Unit = {},
+    onAddTarget: (String, String) -> Unit = { _, _ -> },
+    onRemoveTarget: (String) -> Unit = {}
 ) {
     val wifi = state.wifi
     var logViewerOpen by remember { mutableStateOf(false) }
@@ -210,6 +215,12 @@ fun NetworkScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             }
+
+            // ── 局域网设备 ──────────────────────────────
+            Spacer(Modifier.height(14.dp))
+            SectionTitle("局域网设备", trailing = "ICMP + ARP 实测")
+            Spacer(Modifier.height(9.dp))
+            LanScanCard(report = state.lanReport, scanning = state.lanScanning, onScan = onScanLan)
 
             // ── DNS 解析对比 ────────────────────────────
             Spacer(Modifier.height(14.dp))
@@ -428,6 +439,19 @@ fun NetworkScreen(
             }
             DiagnosisCard(diagnosis)
 
+            Spacer(Modifier.height(14.dp))
+            AdvancedDiagnosticsCard(
+                checks = state.checkItems,
+                checking = state.checking,
+                targets = state.allTargets,
+                results = state.targetResults,
+                targetChecking = state.targetChecking,
+                onRunChecks = onRunChecks,
+                onRunTargets = onRunTargets,
+                onAddTarget = onAddTarget,
+                onRemoveTarget = onRemoveTarget
+            )
+
             // ── 链路质量历史 ────────────────────────────
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -476,7 +500,7 @@ fun NetworkScreen(
                         modifier = Modifier.clickable { onExportLogs() }.padding(4.dp)
                     )
                     Text(
-                        "全部 ›",
+                        "事件中心 ›",
                         fontSize = 10.sp,
                         color = Blue,
                         modifier = Modifier.clickable { logViewerOpen = true }.padding(start = 6.dp).padding(4.dp)
@@ -520,8 +544,9 @@ fun NetworkScreen(
         }
     }
     if (logViewerOpen) {
-        LogViewerDialog(
+        EventCenterDialog(
             events = state.events,
+            linkHistory = state.linkHistory,
             onDismiss = { logViewerOpen = false },
             onClear = { onClearEvents() },
             onExport = { onExportLogs() }

@@ -3,9 +3,15 @@ package com.flowstats.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.flowstats.app.data.AdvancedChecks
 import com.flowstats.app.data.AppUsage
+import com.flowstats.app.data.CheckItem
+import com.flowstats.app.data.TargetResult
+import com.flowstats.app.data.TargetSpec
 import com.flowstats.app.data.DeviceStats
 import com.flowstats.app.data.DnsProbe
+import com.flowstats.app.data.LanReport
+import com.flowstats.app.data.LanScanner
 import com.flowstats.app.data.LinkGrading
 import com.flowstats.app.data.LinkQualityHistory
 import com.flowstats.app.data.LinkQualitySample
@@ -109,7 +115,16 @@ data class UiState(
     val wifiScanHistory: List<ScanSummary> = emptyList(),
     val wifiScanning: Boolean = false,
     /** 不同位置的信号质量快照 */
-    val signalSpots: List<SignalSpot> = emptyList()
+    val signalSpots: List<SignalSpot> = emptyList(),
+    /** 局域网扫描结果 */
+    val lanReport: LanReport? = null,
+    val lanScanning: Boolean = false,
+    /** 一键体检与多目标监控 */
+    val checkItems: List<CheckItem> = emptyList(),
+    val checking: Boolean = false,
+    val customTargets: List<TargetSpec> = emptyList(),
+    val targetResults: List<TargetResult> = emptyList(),
+    val targetChecking: Boolean = false
 ) {
     val visibleApps: List<AppUsage>
         get() {
@@ -134,6 +149,10 @@ data class UiState(
             }
             return result
         }
+
+    /** 内置目标随网关动态生成，自定义目标持久化 */
+    val allTargets: List<TargetSpec>
+        get() = AdvancedChecks.defaultTargets(wifi.gateway) + customTargets
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -156,6 +175,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             linkHistory = LinkQualityHistory.load(application.applicationContext),
             wifiScanHistory = WifiChannelScanner.loadHistory(application.applicationContext),
             signalSpots = SignalSpotStore.load(application.applicationContext),
+            customTargets = AdvancedChecks.loadCustom(application.applicationContext),
             diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.load(application.applicationContext)
         )
         checkPermission()
@@ -190,6 +210,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startDeviceMonitor() {
         deviceJob?.cancel()
         deviceJob = viewModelScope.launch(Dispatchers.IO) {
+            var lastIp: String? = null
+            var lastDns: String? = null
+            var lastLinkMbps: Int? = null
             while (true) {
                 val context = getApplication<Application>()
                 runCatching {
@@ -198,6 +221,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val access = WifiInfoProvider.cellularLabel(context)
                     NetEventLog.noteBssid(wifi.bssid)
                     NetEventLog.noteSignal(wifi.rssi)
+                    val linkNow = wifi.rxLinkMbps ?: wifi.linkSpeedMbps
+                    if (lastLinkMbps != null && linkNow != null && lastLinkMbps!! > 0 &&
+                        linkNow < lastLinkMbps!! * 0.8) {
+                        NetEventLog.log(
+                            com.flowstats.app.data.NetEventKind.SIGNAL,
+                            "协商速率突降：$lastLinkMbps → $linkNow Mbps（${wifi.band ?: "未知频段"}）",
+                            com.flowstats.app.data.EventLevel.WARN
+                        )
+                    }
+                    lastLinkMbps = linkNow
+                    val ipNow = wifi.ipv4?.substringBefore('/')
+                    val dnsNow = wifi.dns.firstOrNull()
+                    if (lastIp != null && ipNow != null && ipNow != lastIp) {
+                        NetEventLog.log(com.flowstats.app.data.NetEventKind.IP, "IPv4 变化：$lastIp → $ipNow")
+                    }
+                    if (lastDns != null && dnsNow != null && dnsNow != lastDns) {
+                        NetEventLog.log(com.flowstats.app.data.NetEventKind.DNS, "DNS 变化：$lastDns → $dnsNow")
+                    }
+                    lastIp = ipNow
+                    lastDns = dnsNow
                     _ui.value = _ui.value.copy(
                         wifi = wifi,
                         memory = memory,
@@ -213,6 +256,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val pingBusy = AtomicBoolean(false)
+    private var lastLatencyBad = false
+    private var lastLossBad = false
     private var pingJob: Job? = null
     private var pingRound = 0
 
@@ -279,6 +324,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             val wifiNow = _ui.value.wifi
+            val latencyBad = report.ok && report.rttAvg >= 200
+            if (latencyBad && !lastLatencyBad) {
+                NetEventLog.log(com.flowstats.app.data.NetEventKind.DIAGNOSTIC,
+                    "延迟异常：平均 ${report.rttAvg.toInt()} ms（连续超过 200 ms）", com.flowstats.app.data.EventLevel.WARN)
+            }
+            lastLatencyBad = latencyBad
+            val lossBad = report.ok && report.lossPercent >= 10
+            if (lossBad && !lastLossBad) {
+                NetEventLog.log(com.flowstats.app.data.NetEventKind.DIAGNOSTIC,
+                    "丢包异常：${report.lossPercent}%（连续出现丢包）", com.flowstats.app.data.EventLevel.WARN)
+            }
+            lastLossBad = lossBad
             _ui.value = _ui.value.copy(
                 ping = report,
                 pingRunning = false,
@@ -308,6 +365,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _ui.value = _ui.value.copy(linkHistory = updated)
         } finally {
             pingBusy.set(false)
+        }
+    }
+
+    fun runAdvancedChecks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _ui.value = _ui.value.copy(checking = true)
+            val cur = _ui.value
+            val items = AdvancedChecks.runChecks(
+                getApplication(), cur.wifi, cur.ping, cur.dnsMs, cur.publicIp, cur.publicIpv6
+            )
+            _ui.value = _ui.value.copy(checkItems = items, checking = false)
+        }
+    }
+
+    fun runTargetChecks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _ui.value = _ui.value.copy(targetChecking = true)
+            val results = AdvancedChecks.checkTargets(_ui.value.allTargets)
+            _ui.value = _ui.value.copy(targetResults = results, targetChecking = false)
+        }
+    }
+
+    fun addTarget(label: String, host: String) {
+        _ui.value = _ui.value.copy(
+            customTargets = AdvancedChecks.addCustom(getApplication(), label, host)
+        )
+    }
+
+    fun removeTarget(host: String) {
+        _ui.value = _ui.value.copy(
+            customTargets = AdvancedChecks.removeCustom(getApplication(), host),
+            targetResults = _ui.value.targetResults.filterNot { it.host == host }
+        )
+    }
+
+    /** 局域网扫描：ICMP 探测 + ARP 表 + 端口探测，全部在 IO 线程执行 */
+    fun scanLan() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _ui.value = _ui.value.copy(lanScanning = true)
+            val report = runCatching { LanScanner.scan(getApplication()) }
+                .getOrElse { LanReport(error = "扫描失败：${it.message ?: "未知错误"}") }
+            _ui.value = _ui.value.copy(lanReport = report, lanScanning = false)
         }
     }
 

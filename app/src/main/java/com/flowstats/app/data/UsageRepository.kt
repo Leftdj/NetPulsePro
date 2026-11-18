@@ -149,8 +149,9 @@ class UsageRepository(private val context: Context) {
 
     /** 按应用拆分：移动网络 / WiFi，各自下载(rx) / 上传(tx) */
     fun loadAppUsages(start: Long, end: Long): Pair<List<AppUsage>, Totals> {
-        val mobileByUid = queryByUid(TYPE_MOBILE, start, end)
-        val wifiByUid = queryByUid(TYPE_WIFI, start, end)
+        // 部分机型对超长区间 queryDetails 直接返回空，改为查不到时按月分段累加（只影响月/年视图）
+        val mobileByUid = queryByUidRobust(TYPE_MOBILE, start, end)
+        val wifiByUid = queryByUidRobust(TYPE_WIFI, start, end)
 
         val labels = mutableMapOf<Int, PackageInfoLite>()
         val packages = try {
@@ -332,6 +333,25 @@ class UsageRepository(private val context: Context) {
             }
         }
         return Pair(rx, tx)
+    }
+
+    private fun queryByUidRobust(type: Int, start: Long, end: Long): Map<Int, Pair<Long, Long>> {
+        val direct = queryByUid(type, start, end)
+        if (direct.isNotEmpty()) return direct
+        val span = end - start
+        if (span <= 8L * DAY_MILLIS) return direct
+        val chunk = if (span > 60L * DAY_MILLIS) 30L * DAY_MILLIS else 7L * DAY_MILLIS
+        val merged = mutableMapOf<Int, Pair<Long, Long>>()
+        var cursor = start
+        while (cursor < end) {
+            val next = minOf(cursor + chunk, end)
+            queryByUid(type, cursor, next).forEach { (uid, rxTx) ->
+                val prev = merged[uid] ?: (0L to 0L)
+                merged[uid] = (prev.first + rxTx.first) to (prev.second + rxTx.second)
+            }
+            cursor = next
+        }
+        return merged
     }
 
     private fun queryByUid(type: Int, start: Long, end: Long): Map<Int, Pair<Long, Long>> {
