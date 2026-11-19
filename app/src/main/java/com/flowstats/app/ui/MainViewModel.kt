@@ -168,7 +168,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("flowstats_prefs", android.content.Context.MODE_PRIVATE)
 
     init {
-        // 设置持久化：重装/重启后不再回到默认值
+        // 启动流畅度：先在主线程只做轻量偏好读取，让首帧立即渲染；
+        // 历史数据（SharedPreferences + JSON 解析）移到 IO 线程，不阻塞冷启动。
         _ui.value = _ui.value.copy(
             darkTheme = prefs.getBoolean("darkTheme", false),
             refreshHz = prefs.getInt("refreshHz", 1000),
@@ -176,12 +177,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showSystem = prefs.getBoolean("showSystem", false),
             hideUnknown = prefs.getBoolean("hideUnknown", false),
             monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300),
-            linkHistory = LinkQualityHistory.load(application.applicationContext),
-            wifiScanHistory = WifiChannelScanner.loadHistory(application.applicationContext),
-            signalSpots = SignalSpotStore.load(application.applicationContext),
-            customTargets = AdvancedChecks.loadCustom(application.applicationContext),
-            diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.load(application.applicationContext)
+            linkHistory = LinkQualityHistory.load(application.applicationContext)
         )
+        viewModelScope.launch(Dispatchers.IO) {
+            val ctx = application.applicationContext
+            // 逐项 copy，避免整块覆盖掉 checkPermission / 设备监控并发写入的字段
+            _ui.value = _ui.value.copy(wifiScanHistory = WifiChannelScanner.loadHistory(ctx))
+            _ui.value = _ui.value.copy(signalSpots = SignalSpotStore.load(ctx))
+            _ui.value = _ui.value.copy(customTargets = AdvancedChecks.loadCustom(ctx))
+            _ui.value = _ui.value.copy(
+                diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.load(ctx)
+            )
+        }
         checkPermission()
         // 网络事件时间轴与设备指标不依赖流量权限，立即开始采集
         NetEventLog.start(application.applicationContext)
@@ -251,10 +258,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         accessType = access
                     )
                 }
-                // 网络页强制 2 秒刷新（不受设置页刷新频率影响）
-                val interval = if (_ui.value.networkVisible) 2_000L
-                else _ui.value.refreshHz.toLong().coerceIn(500L, 3000L)
-                delay(interval)
+                // 设备指标（Wi-Fi/内存/事件）2 秒足够，与链路采样对齐；
+                // 不跟随网速采样频率（可低至 0.5 秒），避免首屏每秒全页重组造成卡顿。
+                // 实时速率由 SpeedMonitor 单独以 refreshHz 更新，不受此处影响。
+                delay(2_000L)
             }
         }
     }
