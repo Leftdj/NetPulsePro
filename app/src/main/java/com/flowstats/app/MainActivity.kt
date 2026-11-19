@@ -295,7 +295,6 @@ class MainActivity : ComponentActivity() {
                                 onOpenUsageSettings = { openUsageSettings() },
                                 onToggleTheme = { viewModel.toggleTheme() },
                                 onRefreshHz = { viewModel.setRefreshHz(it) },
-                                onDnsInterval = { viewModel.setDnsInterval(it) },
                                 onToggleSystem = { viewModel.toggleSystem() },
                                 onToggleHideUnknown = { viewModel.toggleHideUnknown() },
                                 onSetQuota = { viewModel.setQuotaGb(it) },

@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v4.9", 28, "DNS 自动刷新改为 1 秒并删除设置项；修复年→月/周/日切换回到年初"),
         ReleaseNote("v4.8", 27, "修正 AP 排序/相对拥挤指数/网关拆分/设备发现标注；新增 DFS 提醒、扫描状态、RSSI 最强值与采样时间、扫描进度与停止、DNS 间隔"),
         ReleaseNote("v4.7", 26, "新增局域网设备扫描、事件中心、一键体检与多目标监控；修复年模式列表为空"),
         ReleaseNote("v4.6", 25, "新增 Wi-Fi 信道分析仪与信号测试记录（RSSI 曲线、位置快照）"),

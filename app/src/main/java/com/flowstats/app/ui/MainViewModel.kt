@@ -69,8 +69,8 @@ data class UiState(
     val filter: AppFilter = AppFilter.ALL,
     val darkTheme: Boolean = false,
     val refreshHz: Int = 1000,
-    /** DNS 对比自动刷新间隔（毫秒）：真实 UDP 查询，默认 15 秒，避免高频耗电 */
-    val dnsIntervalMs: Long = 15_000L,
+    /** DNS 对比自动刷新间隔（毫秒）：按用户要求固定为 1 秒 */
+    val dnsIntervalMs: Long = 1_000L,
     val showSystem: Boolean = false,
     /** 隐藏无法解析名称/图标的应用（已卸载残留、独立后台进程） */
     val hideUnknown: Boolean = false,
@@ -172,7 +172,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _ui.value = _ui.value.copy(
             darkTheme = prefs.getBoolean("darkTheme", false),
             refreshHz = prefs.getInt("refreshHz", 1000),
-            dnsIntervalMs = prefs.getLong("dnsIntervalMs", 15_000L).coerceIn(5_000L, 60_000L),
+            dnsIntervalMs = 1_000L,
             showSystem = prefs.getBoolean("showSystem", false),
             hideUnknown = prefs.getBoolean("hideUnknown", false),
             monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300),
@@ -690,13 +690,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setPeriod(period: Period) {
         val current = _ui.value
         if (current.period == period) return
-        // 关键修复：偏移量单位随周期变化（周/月/年），必须重新换算。
-        // 锚点不能用「当前区间起点」——年区间起点是 1 月 1 日，从年切回日就会落到年初（那里通常没有记录，
-        // 列表一片空白）。改为：当前区间若包含今天就以今天为锚点，否则才用区间起点，
-        // 这样「今年 → 日」回到今天、「2025 年 → 日」回到 2025-01-01，两个方向都符合直觉。
-        val (start, end) = repository.rangeFor(current.period, current.dayOffset)
+        // 偏移量单位随周期变化（周/月/年），必须用锚点重新换算。
+        // 锚点选择：dayOffset == 0 表示当前周期（必然包含今天），直接以今天为锚点；
+        // 只有翻到历史周期时才用区间起点。
+        // 注意：不能用 now in start..end 判断「是否包含今天」——rangeFor 把区间结束截断为 now，
+        // 该判断恒为 false，导致锚点总是回退到区间起点；年的起点是 1 月 1 日，
+        // 于是「年 → 月」落到 1 月、「年 → 周/日」落到元旦，这正是之前 bug 的根因。
+        val (start, _) = repository.rangeFor(current.period, current.dayOffset)
         val now = System.currentTimeMillis()
-        val anchorMillis = if (now in start until end) now else start
+        val anchorMillis = if (current.dayOffset == 0) now else start
         val offset = repository.offsetFor(period, anchorMillis)
         _ui.value = current.copy(
             period = period,
@@ -779,14 +781,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _ui.value = _ui.value.copy(refreshHz = hz)
         prefs.edit().putInt("refreshHz", hz).apply()
         startSpeedMonitor()
-    }
-
-    fun setDnsInterval(ms: Long) {
-        val value = ms.coerceIn(5_000L, 60_000L)
-        if (value == _ui.value.dnsIntervalMs) return
-        _ui.value = _ui.value.copy(dnsIntervalMs = value)
-        prefs.edit().putLong("dnsIntervalMs", value).apply()
-        lastDnsCompareAt = 0L // 立即在下一轮生效
     }
     fun toggleSystem() {
         val value = !_ui.value.showSystem
