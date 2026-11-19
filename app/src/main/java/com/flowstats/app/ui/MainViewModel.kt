@@ -69,6 +69,8 @@ data class UiState(
     val filter: AppFilter = AppFilter.ALL,
     val darkTheme: Boolean = false,
     val refreshHz: Int = 1000,
+    /** DNS 对比自动刷新间隔（毫秒）：真实 UDP 查询，默认 15 秒，避免高频耗电 */
+    val dnsIntervalMs: Long = 15_000L,
     val showSystem: Boolean = false,
     /** 隐藏无法解析名称/图标的应用（已卸载残留、独立后台进程） */
     val hideUnknown: Boolean = false,
@@ -119,6 +121,7 @@ data class UiState(
     /** 局域网扫描结果 */
     val lanReport: LanReport? = null,
     val lanScanning: Boolean = false,
+    val lanProgress: Pair<Int, Int> = 0 to 0,
     /** 一键体检与多目标监控 */
     val checkItems: List<CheckItem> = emptyList(),
     val checking: Boolean = false,
@@ -169,6 +172,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _ui.value = _ui.value.copy(
             darkTheme = prefs.getBoolean("darkTheme", false),
             refreshHz = prefs.getInt("refreshHz", 1000),
+            dnsIntervalMs = prefs.getLong("dnsIntervalMs", 15_000L).coerceIn(5_000L, 60_000L),
             showSystem = prefs.getBoolean("showSystem", false),
             hideUnknown = prefs.getBoolean("hideUnknown", false),
             monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300),
@@ -256,10 +260,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val pingBusy = AtomicBoolean(false)
+    private val lanStopFlag = AtomicBoolean(false)
     private var lastLatencyBad = false
     private var lastLossBad = false
     private var pingJob: Job? = null
     private var pingRound = 0
+    private var lastDnsCompareAt = 0L
 
     /**
      * 前台自动测量开关。
@@ -283,6 +289,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _ui.value = _ui.value.copy(wifi = wifi)
                 runPingRound(quick = true, withDns = true)
                 runDnsCompare()
+                lastDnsCompareAt = System.currentTimeMillis()
             }
         }
     }
@@ -296,8 +303,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // 每 150 轮（约 5 分钟）自动存一条检测快照到历史
                 if (pingRound % 150 == 0 && _ui.value.ping.ok) recordDiagnostic(_ui.value.ping)
                 if (_ui.value.networkVisible) {
-                    // 网络页：DNS 解析对比每轮自动刷新（内部有 dnsProbing 防重）
-                    runDnsCompare()
+                    // DNS 对比是对多个 DNS 服务器发起真实 UDP 解析，按可配置间隔节流（默认 15 秒），
+                    // 不再每 2 秒轰炸；内部有 dnsProbing 防重
+                    val now = System.currentTimeMillis()
+                    if (now - lastDnsCompareAt >= _ui.value.dnsIntervalMs) {
+                        runDnsCompare()
+                        lastDnsCompareAt = now
+                    }
                     // 公网 IP 是外部 HTTP，30 秒刷新一次，避免无效请求
                     if (pingRound % 15 == 0) refreshPublicIp(force = true)
                 }
@@ -402,12 +414,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 局域网扫描：ICMP 探测 + ARP 表 + 端口探测，全部在 IO 线程执行 */
     fun scanLan() {
+        lanStopFlag.set(false)
         viewModelScope.launch(Dispatchers.IO) {
-            _ui.value = _ui.value.copy(lanScanning = true)
-            val report = runCatching { LanScanner.scan(getApplication()) }
-                .getOrElse { LanReport(error = "扫描失败：${it.message ?: "未知错误"}") }
+            _ui.value = _ui.value.copy(lanScanning = true, lanProgress = 0 to 0)
+            val report = runCatching {
+                LanScanner.scan(
+                    getApplication(),
+                    onProgress = { done, total, _ ->
+                        _ui.value = _ui.value.copy(lanProgress = done to total)
+                    },
+                    shouldStop = { lanStopFlag.get() }
+                )
+            }.getOrElse { LanReport(error = "扫描失败：${it.message ?: "未知错误"}") }
             _ui.value = _ui.value.copy(lanReport = report, lanScanning = false)
         }
+    }
+
+    fun stopLanScan() {
+        lanStopFlag.set(true)
     }
 
     /** 保存当前位置的信号快照：取最近 30 条真实 RSSI 采样统计，样本不足不生成 */
@@ -755,6 +779,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _ui.value = _ui.value.copy(refreshHz = hz)
         prefs.edit().putInt("refreshHz", hz).apply()
         startSpeedMonitor()
+    }
+
+    fun setDnsInterval(ms: Long) {
+        val value = ms.coerceIn(5_000L, 60_000L)
+        if (value == _ui.value.dnsIntervalMs) return
+        _ui.value = _ui.value.copy(dnsIntervalMs = value)
+        prefs.edit().putLong("dnsIntervalMs", value).apply()
+        lastDnsCompareAt = 0L // 立即在下一轮生效
     }
     fun toggleSystem() {
         val value = !_ui.value.showSystem

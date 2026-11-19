@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowstats.app.data.ApInfo
+import com.flowstats.app.data.ScanFreshness
 import com.flowstats.app.data.ScanSummary
 import com.flowstats.app.data.WifiScanReport
 import com.flowstats.app.ui.theme.Blue
@@ -116,6 +117,27 @@ fun WifiChannelCard(
                         Spacer(Modifier.height(3.dp))
                         Text(it, fontSize = 9.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    // 扫描新鲜度状态：明确区分新结果 / 等待 / 历史缓存，不把旧数据当最新
+                    Spacer(Modifier.height(4.dp))
+                    val fresh = report.freshness
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp))
+                            .background(when (fresh) {
+                                ScanFreshness.NEW -> Teal
+                                ScanFreshness.WAITING -> Orange
+                                ScanFreshness.CACHE -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }))
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            "数据状态：" + fresh.label,
+                            fontSize = 9.5.sp,
+                            color = when (fresh) {
+                                ScanFreshness.NEW -> Teal
+                                ScanFreshness.WAITING -> Orange
+                                ScanFreshness.CACHE -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -151,7 +173,7 @@ fun WifiChannelCard(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "这是 Wi-Fi AP 扫描分析，不是专业频谱仪；Android 限制扫描频率，" +
-                            "部分机型不开放完整信道宽度与厂商信息。重叠压力仅用于相对比较。",
+                            "部分机型不开放完整信道宽度与厂商信息。相对拥挤指数仅用于样本内相对比较，不代表真实占用率。",
                         fontSize = 9.sp,
                         lineHeight = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
@@ -169,7 +191,8 @@ private fun ChannelGraph(report: WifiScanReport) {
         Text("暂无可显示的信道", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
-    Text("信道拥挤度（柱越高、邻近 AP 越多）", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("相对拥挤指数（柱越高、邻近 AP 信号权重越大；非真实占用率）",
+        fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(6.dp))
     Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.Bottom) {
         list.forEach { st ->
@@ -239,7 +262,9 @@ private fun ApList(aps: List<ApInfo>) {
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        "${ap.band} · CH ${ap.channel} · ${ap.widthMhz?.let { "$it MHz" } ?: "宽度未知"}",
+                        "${ap.band} · CH ${ap.channel} · ${ap.frequencyMhz} MHz" +
+                            (ap.widthMhz?.let { " · $it MHz" } ?: "") +
+                            (if (ap.isDfs) " · DFS" else ""),
                         fontSize = 8.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -259,7 +284,7 @@ private fun ApList(aps: List<ApInfo>) {
         }
         if (aps.size > shown.size) {
             Text(
-                "另有 ${aps.size - shown.size} 个 AP（按信号从强到弱取前 10）",
+                "另有 ${aps.size - shown.size} 个 AP（已按 RSSI 从强到弱排序，取前 10；DFS 为需雷达检测的信道）",
                 fontSize = 9.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -272,17 +297,52 @@ private fun ChannelAnalysis(report: WifiScanReport) {
     val current = report.currentChannel?.let { ch -> report.channels.firstOrNull { it.channel == ch } }
     val best = report.recommendedChannel
     Column {
-        InfoLine("当前信道", current?.let { "CH ${it.channel}（${it.band}）" } ?: "未识别")
-        InfoLine("当前拥挤度", current?.let { "${it.crowding} / 100 · 扫描到 ${it.count} 个 AP" } ?: "无数据")
-        InfoLine("最强信号", current?.let { "${it.strongestRssi} dBm" } ?: "无数据")
-        InfoLine("推荐信道", best?.let { "CH $it" } ?: "样本不足")
+        // 当前信道与推荐信道分列，并标注频率与 DFS
+        Text("当前信道", fontSize = 9.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            current?.let {
+                "CH ${it.channel} · ${channelToFreq(it.channel, it.band)} MHz · ${it.band}" +
+                    (if (it.isDfs) " · DFS 信道" else "")
+            } ?: "未识别",
+            fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        // 相对拥挤指数 + 计算依据
+        InfoLine("相对拥挤指数", current?.let { "${it.crowding} / 100" } ?: "无数据")
+        InfoLine("计算依据", current?.let {
+            "本信道 ${it.count} 个 AP · 最强 ${it.strongestRssi} dBm · 邻近重叠加权"
+        } ?: "无数据")
+        if (current?.isDfs == true) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                "DFS 提醒：该信道需雷达检测，路由器可能因检测到雷达强制切换；部分终端不支持 DFS 信道。",
+                fontSize = 9.sp, lineHeight = 13.sp, color = Orange
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("推荐信道", fontSize = 9.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            best?.let { "CH $it" + if (it == report.currentChannel) "（保持当前）" else "" } ?: "样本不足",
+            fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Blue,
+            modifier = Modifier.padding(bottom = 2.dp)
+        )
+        report.recommendReason?.let {
+            Text(it, fontSize = 9.sp, lineHeight = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (report.alternatives.isNotEmpty()) {
+            Text("备选信道：" + report.alternatives.joinToString(" / ") { "CH $it" },
+                fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp))
+        }
         Spacer(Modifier.height(6.dp))
         val top = report.channels.sortedByDescending { it.overlapScore }.take(3)
         if (top.isNotEmpty()) {
-            Text("拥挤信道 Top 3", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("相对拥挤指数 Top 3", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             top.forEach {
                 Text(
-                    "CH ${it.channel} · ${it.band} · ${it.count} 个 AP · 拥挤度 ${it.crowding}",
+                    "CH ${it.channel} · ${it.band} · ${it.count} 个 AP · 指数 ${it.crowding}" +
+                        (if (it.isDfs) " · DFS" else ""),
                     fontSize = 9.5.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(top = 3.dp)
@@ -291,13 +351,20 @@ private fun ChannelAnalysis(report: WifiScanReport) {
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "2.4 GHz 只有 1/6/11 三个互不重叠的信道，推荐只在这三个里选；" +
-                "5/6 GHz 信道间隔大，按实际重叠情况排序。",
+            "指数只表示本轮扫描样本中的相对压力，不是真实空口占用率，100 不代表信道被占满。" +
+                "2.4 GHz 的 8/10 等信道相互重叠，不能当作独立信道相加；推荐只在 1/6/11 中选。" +
+                "5/6 GHz 信道间隔大，DFS 信道另加提示。",
             fontSize = 9.sp,
             lineHeight = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+private fun channelToFreq(channel: Int, band: String): Int = when (band) {
+    "2.4 GHz" -> 2407 + channel * 5
+    "5 GHz", "6 GHz" -> 5000 + channel * 5
+    else -> 0
 }
 
 @Composable

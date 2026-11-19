@@ -67,6 +67,7 @@ fun NetworkScreen(
     onSaveSignalSpot: (String) -> Unit = {},
     onDeleteSignalSpot: (Long) -> Unit = {},
     onScanLan: () -> Unit = {},
+    onStopLan: () -> Unit = {},
     onRunChecks: () -> Unit = {},
     onRunTargets: () -> Unit = {},
     onAddTarget: (String, String) -> Unit = { _, _ -> },
@@ -220,13 +221,19 @@ fun NetworkScreen(
             Spacer(Modifier.height(14.dp))
             SectionTitle("局域网设备", trailing = "ICMP + ARP 实测")
             Spacer(Modifier.height(9.dp))
-            LanScanCard(report = state.lanReport, scanning = state.lanScanning, onScan = onScanLan)
+            LanScanCard(
+                report = state.lanReport,
+                scanning = state.lanScanning,
+                progress = state.lanProgress,
+                onScan = onScanLan,
+                onStop = onStopLan
+            )
 
             // ── DNS 解析对比 ────────────────────────────
             Spacer(Modifier.height(14.dp))
             SectionTitle(
                 "DNS 解析对比",
-                trailing = if (state.networkVisible) "每 2 秒自动刷新"
+                trailing = if (state.networkVisible) "每 ${state.dnsIntervalMs / 1000} 秒自动刷新"
                 else if (state.dnsProbing) "测试中…" else "同一条 A 记录"
             )
             Spacer(Modifier.height(9.dp))

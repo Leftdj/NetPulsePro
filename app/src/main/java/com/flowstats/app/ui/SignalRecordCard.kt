@@ -34,6 +34,9 @@ import com.flowstats.app.data.SignalSpot
 import com.flowstats.app.ui.theme.Blue
 import com.flowstats.app.ui.theme.Orange
 import com.flowstats.app.ui.theme.Teal
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Wi-Fi 信号测试记录：RSSI 曲线直接用链路质量历史里真实采样的值，
@@ -71,17 +74,28 @@ fun SignalRecordCard(
             } else {
                 val ordered = rssiList.reversed()
                 val current = rssiList.first()
+                val strongest = rssiList.maxOrNull() ?: current
                 val weakest = rssiList.minOrNull() ?: current
                 val avg = (rssiList.sum() / rssiList.size.toDouble()).toInt()
                 val drops = rssiList.zipWithNext().count { (a, b) -> b - a >= 8 }
                 Row(Modifier.fillMaxWidth()) {
                     SpotStat("当前", "$current dBm", Modifier.weight(1f))
+                    SpotStat("最强", "$strongest dBm", Modifier.weight(1f))
                     SpotStat("最弱", "$weakest dBm", Modifier.weight(1f))
                     SpotStat("平均", "$avg dBm", Modifier.weight(1f))
                     SpotStat("突降", "$drops 次", Modifier.weight(1f))
                 }
-                Spacer(Modifier.height(10.dp))
-                Text("最近 ${ordered.size} 次 RSSI 采样", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                // 采样时间：取最新一条有 RSSI 的样本时间，明确曲线覆盖范围
+                val rssiSamples = samples.filter { it.rssi != null }.take(48)
+                val newestTime = rssiSamples.firstOrNull()?.time
+                val oldestTime = rssiSamples.lastOrNull()?.time
+                val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.CHINA) }
+                val rangeText = if (newestTime != null && oldestTime != null)
+                    "${timeFmt.format(Date(oldestTime))} — ${timeFmt.format(Date(newestTime))}"
+                else "—"
+                Text("最近 ${ordered.size} 次有效采样 · $rangeText",
+                    fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(5.dp))
                 Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.Bottom) {
                     ordered.forEach { rssi ->

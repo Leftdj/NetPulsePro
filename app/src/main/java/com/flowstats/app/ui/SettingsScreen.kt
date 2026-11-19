@@ -73,6 +73,7 @@ fun SettingsScreen(
     onOpenUsageSettings: () -> Unit,
     onToggleTheme: () -> Unit,
     onRefreshHz: (Int) -> Unit,
+    onDnsInterval: (Long) -> Unit,
     onToggleSystem: () -> Unit,
     onToggleHideUnknown: () -> Unit,
     onSetQuota: (Int) -> Unit,
@@ -140,6 +141,10 @@ fun SettingsScreen(
                     SettingDivider()
                     SettingRow("刷新频率", "实时网速采样间隔", glyph = "↻", glyphColor = Teal, trailing = {
                         RefreshSegments(state.refreshHz, onRefreshHz)
+                    })
+                    SettingDivider()
+                    SettingRow("DNS 自动刷新", "真实解析查询，默认 15 秒", glyph = "◎", glyphColor = Blue, trailing = {
+                        DnsIntervalSegments(state.dnsIntervalMs, onDnsInterval)
                     })
                     SettingDivider()
                     SettingRow("显示系统应用", "包含无图标的系统服务", glyph = "◈", glyphColor = Blue,
@@ -391,6 +396,44 @@ private fun RefreshSegments(current: Int, onPick: (Int) -> Unit) {
                 ) {
                     Text(
                         labels[i], fontSize = 10.sp,
+                        color = if (i == index) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** DNS 自动刷新间隔分段选择器：5 / 15 / 30 / 60 秒，真实解析查询不宜高频 */
+@Composable
+private fun DnsIntervalSegments(currentMs: Long, onPick: (Long) -> Unit) {
+    val values = listOf(5_000L, 15_000L, 30_000L, 60_000L)
+    val labels = listOf("5s", "15s", "30s", "60s")
+    val index = values.indexOf(currentMs).coerceAtLeast(0)
+    val x by animateDpAsState(
+        targetValue = (index * 34).dp,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 380f),
+        label = "dnsIntervalIndicator"
+    )
+    Box(
+        Modifier.width(136.dp).height(30.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(
+            Modifier.offset(x = x).padding(2.dp)
+                .size(width = 34.dp, height = 30.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(Brush.horizontalGradient(listOf(Blue, Purple)))
+        )
+        Row {
+            values.forEachIndexed { i, ms ->
+                Box(
+                    Modifier.width(34.dp).height(30.dp).clickable { onPick(ms) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        labels[i], fontSize = 9.sp,
                         color = if (i == index) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
