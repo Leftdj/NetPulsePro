@@ -199,18 +199,15 @@ private fun StatusChip(status: ScanStatus) {
 
 @Composable
 private fun ResultSummary(report: LanReport) {
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+    // 必须用 Column 纵向排列；此前误用 Box 导致标题、数字与发现方式文字重叠在一起
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
         .background(Blue.copy(alpha = 0.07f)).padding(horizontal = 12.dp, vertical = 9.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("局域网扫描结果", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text("${report.uniqueDeviceCount}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Blue)
-                    Spacer(Modifier.width(4.dp))
-                    Text("台唯一设备（去重）", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 3.dp))
-                }
-            }
+        Text("局域网扫描结果", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("${report.uniqueDeviceCount}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Blue)
+            Spacer(Modifier.width(4.dp))
+            Text("台唯一设备（去重）", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 3.dp))
         }
         Spacer(Modifier.height(6.dp))
         val parts = mutableListOf<String>()

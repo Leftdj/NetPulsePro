@@ -11,8 +11,8 @@ android {
         applicationId = "com.flowstats.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30
-        versionName = "5.1"
+        versionCode = 31
+        versionName = "5.2"
     }
 
     buildTypes {

@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v5.2", 31, "修复局域网扫描结果卡片文字重叠"),
         ReleaseNote("v5.1", 30, "局域网模块第二轮：统计去重、扫描状态、设备详情页、拓扑交互与列表增强"),
         ReleaseNote("v5.0", 29, "启动流畅度优化：历史数据加载异步化、设备轮询降至 2 秒、减少首屏重组"),
         ReleaseNote("v4.9", 28, "DNS 自动刷新改为 1 秒并删除设置项；修复年→月/周/日切换回到年初"),
