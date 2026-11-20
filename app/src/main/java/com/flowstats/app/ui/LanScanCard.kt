@@ -311,18 +311,78 @@ private fun DeviceList(
     }
 }
 
-/** 设备图标：网关用 G、本机用本、在线绿点、离线灰点，拓扑与列表共用语义 */
+/**
+ * 设备图标：Canvas 矢量线性图标（路由器 / 显示器 / 手机），替代原来的 G/本/圆点占位。
+ * 网关=路由器，本机=显示器，在线终端=手机，离线统一灰化。语义与拓扑一致。
+ */
 @Composable
 private fun DeviceIcon(d: LanDevice) {
-    val (label, color) = when {
-        d.isGateway -> "G" to Blue
-        d.isSelf -> "本" to Teal
-        d.respondedNow -> "·" to Success
-        else -> "·" to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    val color = when {
+        d.isGateway -> Blue
+        d.isSelf -> Teal
+        !d.respondedNow -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+        else -> Success
     }
-    Box(Modifier.size(16.dp).clip(RoundedCornerShape(5.dp)).background(color.copy(alpha = 0.18f)),
+    Box(Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.12f)),
         contentAlignment = Alignment.Center) {
-        Text(label, fontSize = 9.sp, color = color, fontWeight = FontWeight.Bold)
+        Canvas(Modifier.size(16.dp)) {
+            val w = size.width
+            val h = size.height
+            val sw = w * 0.11f
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round
+            )
+            when {
+                d.isGateway -> {
+                    // 路由器：圆角机身 + 两根天线 + 状态灯
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(w * 0.12f, h * 0.52f),
+                        size = androidx.compose.ui.geometry.Size(w * 0.76f, h * 0.36f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.12f),
+                        style = stroke
+                    )
+                    listOf(0.30f, 0.70f).forEach { x ->
+                        drawLine(color, Offset(w * x, h * 0.50f),
+                            Offset(w * x, h * 0.18f), strokeWidth = sw,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    }
+                    drawCircle(color, radius = w * 0.045f,
+                        center = Offset(w * 0.30f, h * 0.70f))
+                }
+                d.isSelf -> {
+                    // 显示器：屏幕 + 底座
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(w * 0.10f, h * 0.14f),
+                        size = androidx.compose.ui.geometry.Size(w * 0.80f, h * 0.56f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.12f),
+                        style = stroke
+                    )
+                    drawLine(color, Offset(w * 0.5f, h * 0.70f),
+                        Offset(w * 0.5f, h * 0.84f), strokeWidth = sw,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawLine(color, Offset(w * 0.32f, h * 0.86f),
+                        Offset(w * 0.68f, h * 0.86f), strokeWidth = sw,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+                else -> {
+                    // 终端手机：圆角机身 + 听筒 + 底部圆点
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(w * 0.28f, h * 0.08f),
+                        size = androidx.compose.ui.geometry.Size(w * 0.44f, h * 0.84f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.12f),
+                        style = stroke
+                    )
+                    drawLine(color, Offset(w * 0.44f, h * 0.18f),
+                        Offset(w * 0.56f, h * 0.18f), strokeWidth = sw,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawCircle(color, radius = w * 0.035f, center = Offset(w * 0.5f, h * 0.82f))
+                }
+            }
+        }
     }
 }
 
@@ -369,7 +429,21 @@ private fun TopologyView(devices: List<LanDevice>, onOpen: (LanDevice) -> Unit) 
                     !d.respondedNow -> color.copy(alpha = 0.5f)
                     else -> Success
                 }
-                drawCircle(color = node, center = Offset(x, y), radius = 5f)
+                // 节点形状与列表图标语义一致：网关方形、本机菱形、终端圆形
+                when {
+                    d.isGateway -> drawRoundRect(
+                        color = node, topLeft = Offset(x - 5f, y - 5f),
+                        size = androidx.compose.ui.geometry.Size(10f, 10f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f)
+                    )
+                    d.isSelf -> drawRoundRect(
+                        color = node,
+                        topLeft = Offset(x - 3.5f, y - 3.5f),
+                        size = androidx.compose.ui.geometry.Size(7f, 7f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(1f)
+                    )
+                    else -> drawCircle(color = node, center = Offset(x, y), radius = 5f)
+                }
                 // 节点只标 IP 末段：避免图形拥挤，完整信息点击节点看详情
                 val last = d.ip.substringAfterLast('.')
                 drawText(
@@ -378,17 +452,24 @@ private fun TopologyView(devices: List<LanDevice>, onOpen: (LanDevice) -> Unit) 
                     style = TextStyle(fontSize = 9.sp, color = canvasColor)
                 )
             }
+            // 中心改画路由器轮廓图标，不再写"网关"文字（避免与上方节点文字重叠）
             drawCircle(color = Blue, center = Offset(cx, cy), radius = 17f, style = Stroke(2f))
-            drawText(
-                measurer, "网关",
-                topLeft = Offset(cx - 10f, cy - 5f),
-                style = TextStyle(fontSize = 9.sp, color = Blue, fontWeight = FontWeight.Medium)
+            drawRoundRect(
+                color = Blue,
+                topLeft = Offset(cx - 8f, cy - 1f),
+                size = androidx.compose.ui.geometry.Size(16f, 9f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f),
+                style = Stroke(1.5f)
             )
+            drawLine(Blue, Offset(cx - 4f, cy - 2f), Offset(cx - 5f, cy - 7f),
+                strokeWidth = 1.5f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(Blue, Offset(cx + 4f, cy - 2f), Offset(cx + 5f, cy - 7f),
+                strokeWidth = 1.5f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
         }
     }
     Text(
         "节点标注为 IP 末段（如 23 = 192.168.10.23），点击节点打开设备详情；" +
-            "绿色在线、灰色为仅历史命中，网关与本机以图标区分。逻辑关系示意，非物理拓扑。",
+            "方形=网关、菱形=本机、圆形=终端；绿色在线、灰色仅历史命中。逻辑关系示意，非物理拓扑。",
         fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
     )
