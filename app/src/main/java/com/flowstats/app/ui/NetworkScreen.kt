@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -71,17 +72,22 @@ fun NetworkScreen(
     onRunChecks: () -> Unit = {},
     onRunTargets: () -> Unit = {},
     onAddTarget: (String, String) -> Unit = { _, _ -> },
-    onRemoveTarget: (String) -> Unit = {}
+    onRemoveTarget: (String) -> Unit = {},
+    onDeviceMetaChange: (String, (com.flowstats.app.data.DeviceMeta) -> com.flowstats.app.data.DeviceMeta) -> Unit = { _, _ -> },
+    onPingDevice: (String, (com.flowstats.app.data.PingReport) -> Unit) -> Unit = { _, _ -> }
 ) {
     val wifi = state.wifi
     var logViewerOpen by remember { mutableStateOf(false) }
+    var selectedLanDevice by remember { mutableStateOf<com.flowstats.app.data.LanDevice?>(null) }
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            // 底部导航安全区 + 额外留白，保证最后一条记录可完整滚动显示
+            .navigationBarsPadding().padding(bottom = 84.dp)
     ) {
         Column(
             Modifier.statusBarsPadding()
-                .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 2.dp)
+                .padding(start = 18.dp, end = 18.dp, top = 20.dp, bottom = 2.dp)
         ) {
             Text(
                 "网络",
@@ -225,8 +231,10 @@ fun NetworkScreen(
                 report = state.lanReport,
                 scanning = state.lanScanning,
                 progress = state.lanProgress,
+                deviceMeta = state.deviceMeta,
                 onScan = onScanLan,
-                onStop = onStopLan
+                onStop = onStopLan,
+                onOpenDevice = { selectedLanDevice = it }
             )
 
             // ── DNS 解析对比 ────────────────────────────
@@ -557,6 +565,15 @@ fun NetworkScreen(
             onDismiss = { logViewerOpen = false },
             onClear = { onClearEvents() },
             onExport = { onExportLogs() }
+        )
+    }
+    selectedLanDevice?.let { device ->
+        LanDeviceDetailDialog(
+            device = device,
+            meta = state.deviceMeta[device.ip] ?: com.flowstats.app.data.DeviceMeta(),
+            onDismiss = { selectedLanDevice = null },
+            onMetaChange = { meta -> onDeviceMetaChange(device.ip) { meta } },
+            onPing = { cb -> onPingDevice(device.ip, cb) }
         )
     }
     }

@@ -122,6 +122,8 @@ data class UiState(
     val lanReport: LanReport? = null,
     val lanScanning: Boolean = false,
     val lanProgress: Pair<Int, Int> = 0 to 0,
+    /** 局域网设备的用户备注/收藏/忽略 */
+    val deviceMeta: Map<String, com.flowstats.app.data.DeviceMeta> = emptyMap(),
     /** 一键体检与多目标监控 */
     val checkItems: List<CheckItem> = emptyList(),
     val checking: Boolean = false,
@@ -184,6 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // 逐项 copy，避免整块覆盖掉 checkPermission / 设备监控并发写入的字段
             _ui.value = _ui.value.copy(wifiScanHistory = WifiChannelScanner.loadHistory(ctx))
             _ui.value = _ui.value.copy(signalSpots = SignalSpotStore.load(ctx))
+            _ui.value = _ui.value.copy(deviceMeta = com.flowstats.app.data.LanDeviceStore.load(ctx))
             _ui.value = _ui.value.copy(customTargets = AdvancedChecks.loadCustom(ctx))
             _ui.value = _ui.value.copy(
                 diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.load(ctx)
@@ -439,6 +442,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopLanScan() {
         lanStopFlag.set(true)
+    }
+
+    /** 更新设备备注/收藏/忽略，持久化后同步到状态 */
+    fun updateDeviceMeta(ip: String, transform: (com.flowstats.app.data.DeviceMeta) -> com.flowstats.app.data.DeviceMeta) {
+        val map = com.flowstats.app.data.LanDeviceStore.update(getApplication(), ip, transform)
+        _ui.value = _ui.value.copy(deviceMeta = map)
+    }
+
+    /** 单设备网络质量实测：真实 ping 3 包，结果通过回调返回，不缓存不估算 */
+    fun pingDevice(ip: String, onResult: (com.flowstats.app.data.PingReport) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val report = runCatching {
+                com.flowstats.app.data.NetworkDiagnostics.ping(ip, count = 3)
+            }.getOrElse { com.flowstats.app.data.PingReport(error = it.message ?: "测量失败") }
+            withContext(Dispatchers.Main) { onResult(report) }
+        }
     }
 
     /** 保存当前位置的信号快照：取最近 30 条真实 RSSI 采样统计，样本不足不生成 */

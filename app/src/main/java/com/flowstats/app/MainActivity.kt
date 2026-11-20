@@ -287,7 +287,9 @@ class MainActivity : ComponentActivity() {
                                 onRunChecks = { viewModel.runAdvancedChecks() },
                                 onRunTargets = { viewModel.runTargetChecks() },
                                 onAddTarget = { l, h -> viewModel.addTarget(l, h) },
-                                onRemoveTarget = { viewModel.removeTarget(it) }
+                                onRemoveTarget = { viewModel.removeTarget(it) },
+                                onDeviceMetaChange = { ip, transform -> viewModel.updateDeviceMeta(ip, transform) },
+                                onPingDevice = { ip, cb -> viewModel.pingDevice(ip, cb) }
                             )
                             Screen.Settings -> SettingsScreen(
                                 state = ui,

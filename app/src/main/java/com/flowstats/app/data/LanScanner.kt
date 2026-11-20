@@ -29,6 +29,14 @@ enum class DiscoverySource(val label: String, val confidence: String) {
     HISTORY("历史记录", "低")
 }
 
+/** 单次扫描的完成状态：未完成时不把设备数当作最终结果 */
+enum class ScanStatus(val label: String) {
+    RUNNING("扫描中"),
+    COMPLETE("扫描完成"),
+    STOPPED("扫描中断"),
+    FAILED("扫描失败")
+}
+
 /** 局域网设备：所有字段来自 ICMP 探测、/proc/net/arp、TCP 连接或本地历史，不猜 MAC 和厂商 */
 data class LanDevice(
     val ip: String,
@@ -46,7 +54,11 @@ data class LanDevice(
     /** 是否存在本轮真实响应（ICMP/ARP/TCP/本机/网关），false 表示仅历史命中 */
     val respondedNow: Boolean,
     /** 设备类型：仅依据主机名与厂商的粗略推测，可能是「未知终端」 */
-    val deviceType: String
+    val deviceType: String,
+    /** ICMP 响应延迟（实测 RTT），仅 ping 命中且有 time= 输出时才有值 */
+    val responseMs: Double? = null,
+    /** 端口探测耗时（本轮实测） */
+    val portProbeMs: Long? = null
 ) {
     val primarySource: DiscoverySource
         get() = sources.firstOrNull() ?: DiscoverySource.HISTORY
@@ -63,12 +75,18 @@ data class LanReport(
     val scanned: Int = 0,
     val total: Int = 0,
     val devices: List<LanDevice> = emptyList(),
-    /** 各发现方式命中数量（仅本轮响应） */
+    /** 去重的唯一设备数（同一设备被多种方式发现只计一次），不含本机 */
+    val uniqueDeviceCount: Int = 0,
+    /** 各发现方式的命中次数：可能重叠，之和不等于唯一设备数 */
     val sourceCounts: Map<DiscoverySource, Int> = emptyMap(),
+    val scanStatus: ScanStatus = ScanStatus.COMPLETE,
     val message: String? = null,
     val error: String? = null,
     val stopped: Boolean = false
-)
+) {
+    val progressPercent: Int
+        get() = if (total > 0) (scanned * 100 / total).coerceIn(0, 100) else 0
+}
 
 /**
  * 局域网设备扫描。
@@ -194,32 +212,40 @@ object LanScanner {
                     if (shouldStop()) return@async null
                     semaphore.acquire()
                     try {
-                        val ok = if (shouldStop()) false else pingOnce(ip)
+                        val probe = if (shouldStop()) null else pingOnce(ip)
                         val n = ++scannedCount
                         if (n % PROGRESS_STEP == 0 || n == targets.size) {
                             val found = sources.keys.count { it != localIp }
                             onProgress(n, targets.size, found)
                         }
-                        if (ok) ip else null
+                        // 打包成 (IP, RTT)，只保留 ping 命中的
+                        if (probe?.first == true) ip to probe.second else null
                     } finally {
                         semaphore.release()
                     }
                 }
             }.awaitAll().filterNotNull()
         }
-        alive.forEach { addSource(it, DiscoverySource.ICMP) }
+        // 实测 RTT：ping 命中且输出里解析到 time= 时才有值，否则留空
+        val rttByIp: Map<String, Double?> = alive.associate { (ip, rtt) -> ip to rtt }
+        alive.forEach { (ip, _) -> addSource(ip, DiscoverySource.ICMP) }
 
         val stopped = shouldStop()
         // 所有当前有来源的 IP（含本机、网关、ARP、ICMP），端口仅在设备数不多时探测并缓存结果
         portCache.clear()
+        val portCost = mutableMapOf<String, Long>()
         val currentIps = sources.keys.toList()
         if (currentIps.size <= 40 && !stopped) {
             currentIps.forEach { ip ->
+                val t0 = System.currentTimeMillis()
                 val ports = probePorts(ip)
+                portCost[ip] = System.currentTimeMillis() - t0
                 portCache[ip] = ports
                 if (ports.isNotEmpty()) addSource(ip, DiscoverySource.TCP)
             }
         }
+        // 超过 40 台跳过端口探测时，明确记录为未探测，不伪造耗时
+        currentIps.forEach { if (it !in portCost) portCost[it] = -1L }
         // 历史记录中的设备也展示，但明确标为「历史记录 / 低可信」，不计入本轮响应
         seen.keys.filter { it.startsWith("$base.") && it !in sources }
             .forEach { addSource(it, DiscoverySource.HISTORY) }
@@ -252,20 +278,33 @@ object LanScanner {
                 openPorts = ports,
                 sources = ordered,
                 respondedNow = responded,
-                deviceType = guessType(hostname, vendor, ports)
+                deviceType = guessType(hostname, vendor, ports),
+                responseMs = rttByIp[ip],
+                portProbeMs = portCost[ip]?.takeIf { it >= 0 }
             )
         }.sortedWith(compareByDescending<LanDevice> { it.isGateway }
             .thenByDescending { it.respondedNow }
             .thenBy { ipOrder(it.ip) })
 
         writeSeen(context, seen)
+        // 发现方式命中次数：同一设备可被多种方式发现，此处按方式累加，可能重叠
         val counts = sources.values.flatMap { it.toList() }
             .filter { it != DiscoverySource.HISTORY }
             .groupingBy { it }.eachCount()
+        // 去重后的唯一设备数：一台设备只计一次，不含本机
         val respondedCount = devices.count { it.respondedNow && !it.isSelf }
+        // 本函数返回即代表本轮已结束：未手动停止就是完成（ begun 扫描中由 UI 的 scanning 状态表达）。
+        // scannedCount < total 只说明部分地址未响应，不是"仍在扫描"。
+        val status = if (stopped) ScanStatus.STOPPED else ScanStatus.COMPLETE
         val parts = mutableListOf<String>()
         DiscoverySource.values().filter { it != DiscoverySource.HISTORY && it != DiscoverySource.SELF }
-            .forEach { s -> counts[s]?.let { parts.add("${s.label} $it") } }
+            .forEach { s -> counts[s]?.let { parts.add("${s.label} $it 台次") } }
+        val statusText = when (status) {
+            ScanStatus.COMPLETE -> "扫描完成"
+            ScanStatus.STOPPED -> "扫描已中断"
+            ScanStatus.RUNNING -> "扫描尚未完成"
+            ScanStatus.FAILED -> "扫描失败"
+        }
         LanReport(
             time = now,
             gatewayV4 = gw4,
@@ -277,10 +316,14 @@ object LanScanner {
             scanned = scannedCount,
             total = targets.size,
             devices = devices,
+            uniqueDeviceCount = respondedCount,
             sourceCounts = counts,
-            message = "探测 $scannedCount/${targets.size} 个地址，发现响应设备 $respondedCount 台" +
-                (if (parts.isNotEmpty()) "（${parts.joinToString(" · ")}）" else "") +
-                "。ICMP 不响应不等于离线；端口响应不代表服务安全。",
+            scanStatus = status,
+            message = "$statusText · 探测 $scannedCount/${targets.size} 个地址" +
+                "（${(scannedCount * 100 / targets.size.coerceAtLeast(1))}%）· " +
+                "去重后响应设备 $respondedCount 台。各方式命中：" +
+                (if (parts.isNotEmpty()) parts.joinToString(" · ") else "无") +
+                "。同一设备可能被多种方式命中，台次不累加；ICMP 不响应不等于离线。",
             stopped = stopped
         )
     }
@@ -310,15 +353,21 @@ object LanScanner {
 
     private fun ipOrder(ip: String): Int = ip.substringAfterLast('.').toIntOrNull() ?: 0
 
-    private fun pingOnce(ip: String): Boolean = runCatching {
+    /** 返回 (是否在线, 实测 RTT ms)；RTT 只在 ping 输出含 time= 时才有值 */
+    private fun pingOnce(ip: String): Pair<Boolean, Double?> = runCatching {
         val p = ProcessBuilder("/system/bin/ping", "-c", "1", "-W", "1", ip)
             .redirectErrorStream(true).start()
+        val output = p.inputStream.bufferedReader().readText()
         val ok = p.waitFor(1800, TimeUnit.MILLISECONDS)
-        if (ok) p.exitValue() == 0 else {
+        if (!ok) {
             p.destroyForcibly()
-            false
-        }
-    }.getOrDefault(false)
+            false to null
+        } else if (p.exitValue() == 0) {
+            val rtt = Regex("""time[=<]([\d.]+)\s*ms""")
+                .find(output)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+            true to rtt
+        } else false to null
+    }.getOrDefault(false to null)
 
     private fun probePorts(ip: String): List<Int> {
         val ports = COMMON_PORTS.split(",").mapNotNull { it.toIntOrNull() }
