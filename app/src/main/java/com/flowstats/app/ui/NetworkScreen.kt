@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -907,6 +908,7 @@ private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySamp
         samples.mapNotNull { it.bandTag }.distinct().sortedBy { if (it == "2.4G") 0 else 1 }
     }
     var bandFilter by remember { mutableStateOf<String?>(null) }
+    var showAll by remember { mutableStateOf(false) }
     val visible = remember(samples, bandFilter) {
         if (bandFilter == null) samples else samples.filter { it.bandTag == bandFilter }
     }
@@ -949,11 +951,20 @@ private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySamp
                         )
                     }
                     Spacer(Modifier.width(10.dp))
-                    Text(
-                        "共 ${visible.size} 条记录",
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (visible.size > 12) {
+                        Text(
+                            "共 ${visible.size} 条 · 查看全部 ›",
+                            fontSize = 10.sp,
+                            color = Blue,
+                            modifier = Modifier.clickable { showAll = true }.padding(vertical = 2.dp)
+                        )
+                    } else {
+                        Text(
+                            "共 ${visible.size} 条记录",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 // 当前配置基准说明：让「为什么这个 Mbps 是这个评级」有据可查
                 val basis = buildString {
@@ -979,65 +990,16 @@ private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySamp
                 Spacer(Modifier.height(10.dp))
                 val shown = visible.take(12)
                 shown.forEachIndexed { index, s ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            fmt.format(Date(s.time)),
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.width(58.dp)
-                        )
-                        s.bandTag?.let {
-                            BandChip(it, false, onClick = null)
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Box(
-                            Modifier.size(8.dp).clip(RoundedCornerShape(4.dp))
-                                .background(gradeColor(s.grade))
-                        )
-                        Spacer(Modifier.width(7.dp))
-                        Row(
-                            Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                s.linkMbps?.let { "$it Mbps" } ?: (if (s.isWifi) "—" else "移动网络"),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            s.pctOfCeiling?.let {
-                                Text(
-                                    " $it%",
-                                    fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                )
-                            }
-                        }
-                        s.rssi?.let {
-                            Text(
-                                "$it dBm",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(50.dp)
-                            )
-                        }
-                        s.latencyMs?.let {
-                            Text(
-                                "${it.toInt()} ms",
-                                fontSize = 10.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(44.dp)
-                            )
-                        }
-                    }
+                    LinkHistoryRow(s, fmt)
                     if (index != shown.lastIndex) RowDivider()
                 }
                 if (visible.size > 12) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "另有 ${visible.size - 12} 条较早记录",
+                        "另有 ${visible.size - 12} 条较早记录 · 点击查看全部 ›",
                         fontSize = 9.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = Blue,
+                        modifier = Modifier.clickable { showAll = true }.padding(vertical = 2.dp)
                     )
                 }
                 Spacer(Modifier.height(8.dp))
@@ -1050,6 +1012,113 @@ private fun LinkHistoryCard(samples: List<com.flowstats.app.data.LinkQualitySamp
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                 )
             }
+        }
+    }
+    if (showAll) {
+        LinkHistoryFullDialog(
+            samples = visible,
+            allBands = bands,
+            onDismiss = { showAll = false }
+        )
+    }
+}
+
+/** 链路历史单行：卡片与「查看全部」弹窗共用，保证显示口径一致 */
+@Composable
+private fun LinkHistoryRow(
+    s: com.flowstats.app.data.LinkQualitySample,
+    fmt: SimpleDateFormat
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            fmt.format(Date(s.time)),
+            fontSize = 10.5.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(58.dp)
+        )
+        s.bandTag?.let {
+            BandChip(it, false, onClick = null)
+            Spacer(Modifier.width(6.dp))
+        }
+        Box(
+            Modifier.size(8.dp).clip(RoundedCornerShape(4.dp))
+                .background(gradeColor(s.grade))
+        )
+        Spacer(Modifier.width(7.dp))
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                s.linkMbps?.let { "$it Mbps" } ?: (if (s.isWifi) "—" else "移动网络"),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            s.pctOfCeiling?.let {
+                Text(" $it%", fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+            }
+        }
+        s.rssi?.let {
+            Text("$it dBm", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(50.dp))
+        }
+        s.latencyMs?.let {
+            Text("${it.toInt()} ms", fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(44.dp))
+        }
+    }
+}
+
+/** 查看全部链路历史：全屏弹窗，滚动展示完整记录，带频段筛选 */
+@Composable
+private fun LinkHistoryFullDialog(
+    samples: List<com.flowstats.app.data.LinkQualitySample>,
+    allBands: List<String>,
+    onDismiss: () -> Unit
+) {
+    var filter by remember { mutableStateOf<String?>(null) }
+    val visible = remember(samples, filter) {
+        if (filter == null) samples else samples.filter { it.bandTag == filter }
+    }
+    val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            Modifier.fillMaxWidth(0.94f).heightIn(max = 640.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("链路质量历史 · 全部", fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    Text("共 ${visible.size} 条真实采样 · 最新在前", fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("关闭", fontSize = 12.sp, color = Blue,
+                    modifier = Modifier.clickable { onDismiss() }.padding(4.dp))
+            }
+            if (allBands.size > 1) {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BandChip("全部", filter == null) { filter = null }
+                    allBands.forEach { b -> BandChip(b, filter == b) { filter = b } }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                Column {
+                    visible.forEachIndexed { index, s ->
+                        LinkHistoryRow(s, fmt)
+                        if (index != visible.lastIndex) RowDivider()
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("仅反映 Wi-Fi 链路能力，不代表实际下载速度；颜色按占参考上限比例分级。",
+                fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

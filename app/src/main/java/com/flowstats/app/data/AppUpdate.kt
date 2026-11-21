@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v5.4", 33, "链路质量历史支持查看全部记录"),
         ReleaseNote("v5.3", 32, "局域网设备图标改为矢量线性风格（路由器/显示器/手机）"),
         ReleaseNote("v5.2", 31, "修复局域网扫描结果卡片文字重叠"),
         ReleaseNote("v5.1", 30, "局域网模块第二轮：统计去重、扫描状态、设备详情页、拓扑交互与列表增强"),
