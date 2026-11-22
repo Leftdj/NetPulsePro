@@ -312,8 +312,9 @@ private fun DeviceList(
 }
 
 /**
- * 设备图标：Canvas 矢量线性图标（路由器 / 显示器 / 手机），替代原来的 G/本/圆点占位。
- * 网关=路由器，本机=显示器，在线终端=手机，离线统一灰化。语义与拓扑一致。
+ * 设备图标：Canvas 矢量线性图标（路由器 / 手机 / 电脑 / 未知终端）。
+ * 网关=路由器，本机=手机（运行本 App 的设备就是手机），
+ * 已识别为电脑的=显示器，类型未知的=通用终端方块。离线统一灰化。
  */
 @Composable
 private fun DeviceIcon(d: LanDevice) {
@@ -333,6 +334,20 @@ private fun DeviceIcon(d: LanDevice) {
                 width = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round,
                 join = androidx.compose.ui.graphics.StrokeJoin.Round
             )
+            // 手机图标（本机、或明确识别为手机的设备）
+            fun drawPhone() {
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.28f, h * 0.08f),
+                    size = androidx.compose.ui.geometry.Size(w * 0.44f, h * 0.84f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.12f),
+                    style = stroke
+                )
+                drawLine(color, Offset(w * 0.44f, h * 0.18f),
+                    Offset(w * 0.56f, h * 0.18f), strokeWidth = sw,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                drawCircle(color, radius = w * 0.035f, center = Offset(w * 0.5f, h * 0.82f))
+            }
             when {
                 d.isGateway -> {
                     // 路由器：圆角机身 + 两根天线 + 状态灯
@@ -351,8 +366,9 @@ private fun DeviceIcon(d: LanDevice) {
                     drawCircle(color, radius = w * 0.045f,
                         center = Offset(w * 0.30f, h * 0.70f))
                 }
-                d.isSelf -> {
-                    // 显示器：屏幕 + 底座
+                d.isSelf -> drawPhone()  // 本机就是运行本 App 的手机
+                d.deviceType.contains("电脑") -> {
+                    // 仅当明确识别为电脑时才画显示器，不再给未知设备套电脑图标
                     drawRoundRect(
                         color = color,
                         topLeft = Offset(w * 0.10f, h * 0.14f),
@@ -367,19 +383,17 @@ private fun DeviceIcon(d: LanDevice) {
                         Offset(w * 0.68f, h * 0.86f), strokeWidth = sw,
                         cap = androidx.compose.ui.graphics.StrokeCap.Round)
                 }
+                d.deviceType.contains("手机") -> drawPhone()
                 else -> {
-                    // 终端手机：圆角机身 + 听筒 + 底部圆点
+                    // 类型未知：画中性的通用终端方块，不武断认作手机或电脑
                     drawRoundRect(
                         color = color,
-                        topLeft = Offset(w * 0.28f, h * 0.08f),
-                        size = androidx.compose.ui.geometry.Size(w * 0.44f, h * 0.84f),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.12f),
+                        topLeft = Offset(w * 0.16f, h * 0.22f),
+                        size = androidx.compose.ui.geometry.Size(w * 0.68f, h * 0.56f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.14f),
                         style = stroke
                     )
-                    drawLine(color, Offset(w * 0.44f, h * 0.18f),
-                        Offset(w * 0.56f, h * 0.18f), strokeWidth = sw,
-                        cap = androidx.compose.ui.graphics.StrokeCap.Round)
-                    drawCircle(color, radius = w * 0.035f, center = Offset(w * 0.5f, h * 0.82f))
+                    drawCircle(color, radius = w * 0.055f, center = Offset(w * 0.5f, h * 0.5f))
                 }
             }
         }

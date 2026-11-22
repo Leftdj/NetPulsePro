@@ -93,7 +93,7 @@ fun LanDeviceDetailDialog(
             Spacer(Modifier.height(12.dp))
 
             SectionTitle("基本信息")
-            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), corner = 14.dp) {
+            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), corner = 14.dp, elevation = 0.dp) {
                 Column(Modifier.padding(12.dp)) {
                     DetailRow("IP 地址", device.ip)
                     DetailRow("MAC 地址", device.mac ?: "不可见")
@@ -105,7 +105,7 @@ fun LanDeviceDetailDialog(
             Spacer(Modifier.height(12.dp))
 
             SectionTitle("在线状态")
-            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), corner = 14.dp) {
+            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), corner = 14.dp, elevation = 0.dp) {
                 Column(Modifier.padding(12.dp)) {
                     DetailRow("当前状态", if (device.respondedNow) "有响应" else "仅历史记录",
                         valueColor = if (device.respondedNow) Success else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -117,7 +117,7 @@ fun LanDeviceDetailDialog(
             Spacer(Modifier.height(12.dp))
 
             SectionTitle("网络质量")
-            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), corner = 14.dp) {
+            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), corner = 14.dp, elevation = 0.dp) {
                 Column(Modifier.padding(12.dp)) {
                     DetailRow("ICMP 延迟", device.responseMs?.let { "${it.toInt()} ms" } ?: "扫描时未测到")
                     when {
@@ -140,7 +140,7 @@ fun LanDeviceDetailDialog(
             Spacer(Modifier.height(12.dp))
 
             SectionTitle("端口信息")
-            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), corner = 14.dp) {
+            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), corner = 14.dp, elevation = 0.dp) {
                 Column(Modifier.padding(12.dp)) {
                     DetailRow("探测端口", "22 / 80 / 443 / 8080")
                     DetailRow("有响应", device.openPorts.joinToString(" / ").ifBlank { "无" })
@@ -153,7 +153,7 @@ fun LanDeviceDetailDialog(
             Spacer(Modifier.height(12.dp))
 
             SectionTitle("用户管理")
-            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), corner = 14.dp) {
+            SoftCard(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), corner = 14.dp, elevation = 0.dp) {
                 Column(Modifier.padding(12.dp)) {
                     Text("设备备注", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(5.dp))
