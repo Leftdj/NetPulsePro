@@ -171,7 +171,8 @@ fun LanScanCard(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "拓扑与列表共用同一份发现结果；在线设备绿色、仅历史命中灰色，网关与本机以图标区分。" +
-                            "MAC 与厂商依赖 ARP 表与内置 OUI，Android 隐私限制下可能显示「不可见」。" +
+                            "设备名称优先取 mDNS / UPnP / NetBIOS 自报（标注来源）；厂商取 UPnP 自报或 ARP 可见 MAC 的 OUI 前缀。" +
+                            "Android 隐私限制下 MAC 多为随机地址，识别不到即显示「未知终端」，不推测。" +
                             "端口有响应不代表服务存在安全漏洞。",
                         fontSize = 9.sp,
                         lineHeight = 13.sp,
@@ -274,14 +275,19 @@ private fun DeviceList(
                             Spacer(Modifier.width(5.dp))
                             Text("★", fontSize = 10.sp, color = Orange)
                         }
+                        if (d.identity != null) {
+                            Spacer(Modifier.width(5.dp))
+                            Text(d.identity.source, fontSize = 8.sp, color = Teal)
+                        }
                         if (d.isNew) {
                             Spacer(Modifier.width(5.dp))
                             Text("新", fontSize = 8.5.sp, color = Orange)
                         }
                     }
+                    val role = if (d.isGateway) " · 网关" else if (d.isSelf) " · 本机" else ""
+                    val historyTag = if (d.respondedNow) "" else " · 仅历史"
                     Text(
-                        d.ip + if (d.isGateway) " · 网关" else if (d.isSelf) " · 本机" else "" +
-                            (if (d.respondedNow) "" else " · 历史"),
+                        d.ip + role + historyTag,
                         fontSize = 8.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis
                     )

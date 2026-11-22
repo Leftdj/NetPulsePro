@@ -100,6 +100,10 @@ fun LanDeviceDetailDialog(
                     DetailRow("厂商", device.vendor ?: "未知")
                     DetailRow("主机名", device.hostname ?: "未获取")
                     DetailRow("设备类型", device.deviceType)
+                    device.identity?.let { id ->
+                        DetailRow("名称来源", id.source + " 自报", valueColor = Teal)
+                        id.model?.let { DetailRow("型号", it) }
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))

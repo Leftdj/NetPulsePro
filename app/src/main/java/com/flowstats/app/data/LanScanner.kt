@@ -24,6 +24,9 @@ enum class DiscoverySource(val label: String, val confidence: String) {
     SELF("本机", "确定"),
     GATEWAY("网关配置", "确定"),
     ICMP("ICMP 响应", "高"),
+    MDNS("mDNS 自报", "高"),
+    UPNP("UPnP 自报", "高"),
+    NETBIOS("NetBIOS 自报", "中"),
     ARP("ARP 表", "中"),
     TCP("TCP 端口响应", "中"),
     HISTORY("历史记录", "低")
@@ -58,7 +61,9 @@ data class LanDevice(
     /** ICMP 响应延迟（实测 RTT），仅 ping 命中且有 time= 输出时才有值 */
     val responseMs: Double? = null,
     /** 端口探测耗时（本轮实测） */
-    val portProbeMs: Long? = null
+    val portProbeMs: Long? = null,
+    /** 主动发现得到的身份：mDNS / UPnP / NetBIOS 自报，仅真实应答才有值 */
+    val identity: DiscoveredIdentity? = null
 ) {
     val primarySource: DiscoverySource
         get() = sources.firstOrNull() ?: DiscoverySource.HISTORY
@@ -103,12 +108,33 @@ object LanScanner {
     private const val COMMON_PORTS = "22,80,443,8080"
     private const val PROGRESS_STEP = 8
 
+    /**
+     * 常见 OUI 前缀（IEEE 公开分配）；ARP 表可见 MAC 时用于识别厂商，不可见则留空。
+     * 每条前缀唯一，重复前缀会覆盖，宁缺毋错。
+     */
     private val OUI = mapOf(
-        "FCFBFB" to "Apple", "A4D18C" to "Apple", "3C22FB" to "Apple", "B827EB" to "树莓派",
-        "00259C" to "TP-LINK", "E8DCC6" to "TP-LINK", "C861A8" to "华为", "DC7E08" to "华为",
-        "AC83C9" to "小米", "78C627" to "小米", "8CD499" to "小米", "4C49E0" to "三星",
-        "D8C693" to "三星", "001B21" to "Intel", "A4BB6D" to "联想", "F0D1F2" to "大疆",
-        "B09575" to "Espressif", "24A1E7" to "华为", "00E0EC" to "中兴"
+        // 苹果
+        "FCFBFB" to "Apple", "A4D18C" to "Apple", "3C22FB" to "Apple", "B4F8BA" to "Apple",
+        "8C2933" to "Apple", "AC87A3" to "Apple",
+        // 华为 / 荣耀
+        "C861A8" to "华为", "DC7E08" to "华为", "24A1E7" to "华为", "E8DCC6" to "华为",
+        "F4F1A3" to "华为", "9C8B1A" to "荣耀",
+        // 小米
+        "AC83C9" to "小米", "78C627" to "小米", "8CD499" to "小米", "50AA8A" to "小米",
+        "7C9CC1" to "小米", "A4CF12" to "小米",
+        // 三星 / 索尼 / LG
+        "4C49E0" to "三星", "D8C693" to "三星", "5C6E30" to "三星", "E8BDF9" to "索尼",
+        "F8DF43" to "LG", "34DE55" to "LG",
+        // 网络设备
+        "00259C" to "TP-LINK", "50C7BF" to "TP-LINK", "14CC20" to "TP-LINK",
+        "001B21" to "Intel", "A4BB6D" to "联想", "B09575" to "Espressif",
+        "00E0EC" to "中兴", "000C29" to "VMware", "00AA01" to "思科",
+        // 树莓派 / 开发板
+        "B827EB" to "树莓派", "DCE632" to "树莓派", "3C71BF" to "联发科", "80EA96" to "瑞昱",
+        // 微软 / 谷歌 / 亚马逊
+        "00155D" to "微软", "3C5A1B" to "谷歌", "F8CA3C" to "亚马逊", "6C2E48" to "亚马逊",
+        // 群晖 / 威联通 / 华硕
+        "90AEBA" to "群晖", "0023AE" to "威联通", "08606E" to "华硕", "AC9E17" to "华硕"
     )
 
     private data class Seen(val first: Long, val last: Long, val ports: List<Int>)
@@ -204,6 +230,13 @@ object LanScanner {
         gw4?.let { if (it != localIp) addSource(it, DiscoverySource.GATEWAY) }
         arp.keys.filter { it.startsWith("$base.") }.forEach { addSource(it, DiscoverySource.ARP) }
 
+        // 主动身份发现（mDNS/UPnP/NetBIOS）与 ICMP 扫描并行，避免总时长叠加；
+        // 内部各自超时，失败返回空，不影响扫描主体
+        val discoveryJob = async(Dispatchers.IO) {
+            if (shouldStop()) emptyMap()
+            else runCatching { LanDeviceDiscovery.discover(context, localIp) }.getOrElse { emptyMap() }
+        }
+
         val semaphore = Semaphore(24)
         var scannedCount = 0
         val alive = coroutineScope {
@@ -250,11 +283,26 @@ object LanScanner {
         seen.keys.filter { it.startsWith("$base.") && it !in sources }
             .forEach { addSource(it, DiscoverySource.HISTORY) }
 
+        // 汇总主动发现结果：mDNS/UPnP/NetBIOS 自报的身份，按 IP 匹配
+        val identities = discoveryJob.await()
+        identities.forEach { (ip, id) ->
+            if (!isSameSubnet(ip, base)) return@forEach
+            addSource(ip, when (id.source) {
+                "mDNS" -> DiscoverySource.MDNS
+                "UPnP" -> DiscoverySource.UPNP
+                "NetBIOS" -> DiscoverySource.NETBIOS
+                else -> DiscoverySource.ICMP
+            })
+        }
         val devices = sources.map { (ip, src) ->
             val mac = arp[ip]
-            val vendor = mac?.let { OUI[it.replace(":", "").uppercase().take(6)] }
+            val identity = identities[ip]
+            // 厂商：优先 UPnP 自报，其次 OUI 前缀（需 ARP 可见 MAC）
+            val vendor = identity?.vendor
+                ?: mac?.let { OUI[it.replace(":", "").uppercase().take(6)] }
             val responded = DiscoverySource.values().any { it != DiscoverySource.HISTORY && it in src }
-            val hostname = if (responded) runCatching {
+            // 名称：优先主动发现自报，其次 DNS 反查；只有真实来源才写入
+            val hostname = identity?.name ?: if (responded) runCatching {
                 kotlinx.coroutines.withTimeout(900) {
                     InetAddress.getByName(ip).hostName.takeIf { it != ip && it.isNotBlank() }
                 }
@@ -278,9 +326,11 @@ object LanScanner {
                 openPorts = ports,
                 sources = ordered,
                 respondedNow = responded,
-                deviceType = guessType(hostname, vendor, ports),
+                deviceType = identity?.model?.let { "设备（$it）" }
+                    ?: guessType(hostname, vendor, ports),
                 responseMs = rttByIp[ip],
-                portProbeMs = portCost[ip]?.takeIf { it >= 0 }
+                portProbeMs = portCost[ip]?.takeIf { it >= 0 },
+                identity = identity
             )
         }.sortedWith(compareByDescending<LanDevice> { it.isGateway }
             .thenByDescending { it.respondedNow }
@@ -335,6 +385,7 @@ object LanScanner {
 
     private fun orderSources(src: Set<DiscoverySource>): List<DiscoverySource> =
         listOf(DiscoverySource.SELF, DiscoverySource.GATEWAY, DiscoverySource.ICMP,
+            DiscoverySource.MDNS, DiscoverySource.UPNP, DiscoverySource.NETBIOS,
             DiscoverySource.TCP, DiscoverySource.ARP, DiscoverySource.HISTORY)
             .filter { it in src }
 
@@ -350,6 +401,9 @@ object LanScanner {
             else -> "未知终端"
         }
     }
+
+    private fun isSameSubnet(ip: String, base: String): Boolean =
+        ip.substringBeforeLast('.') == base
 
     private fun ipOrder(ip: String): Int = ip.substringAfterLast('.').toIntOrNull() ?: 0
 

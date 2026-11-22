@@ -2,6 +2,20 @@
 
 本项目所有版本均对应 `app/build.gradle.kts` 中的 `versionCode` / `versionName`，与应用内「版本信息」弹窗中的更新日志保持一致。数据均来自 Android 系统公开接口，不估算、不伪造。
 
+## v5.6（build 35）—— 2026-11-22
+
+### 改进（设备识别）
+- **新增三种主动身份发现**，参照锐捷 WiFi 魔盒「把抽象地址换成真实名称」的思路，但改用 Android 上可行的通用协议（锐捷方案依赖 WIS/Telnet AC 与锐捷生态，无法移植）：
+  - **mDNS**（NsdManager）：发现 Google Cast、AirPrint、HomeKit、SSH、SMB、HTTP 等服务，取设备自报名称与 IP
+  - **UPnP/SSDP**（UDP 1900 M-SEARCH）：读取设备 XML 的 friendlyName、manufacturer、modelName
+  - **NetBIOS**（UDP 137 NBNS 名字查询）：读取 Windows、群晖等设备的机器名
+  - 三者与 ICMP 扫描并行执行、各自独立超时；名称与厂商只在设备真实应答时写入，并标注来源（mDNS/UPnP/NetBIOS），识别不到仍显示「未知终端」，不推测
+- **扩充 OUI 厂商表**：从 19 条增至 50+ 条常见前缀（苹果/华为/小米/三星/TP-LINK/群晖/树莓派等）；前缀唯一，避免错误映射
+- 设备列表与详情页显示识别来源与 UPnP 自报型号；顺带修复列表里「仅历史」标签的拼接优先级问题
+
+### 约束说明
+- Android 10+ MAC 随机化使 ARP 表多返回 `00:00:...`，OUI 识别在多数手机上有天然限制；组播发现可能被路由器或系统过滤，均如实留空
+
 ## v5.5（build 34）—— 2026-11-22
 
 ### 修复
