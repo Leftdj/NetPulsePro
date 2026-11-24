@@ -262,6 +262,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenApp = { detailFrom = Screen.Apps; screen = Screen.Detail(it) },
                                 onQuery = { viewModel.setQuery(it) },
                                 onSort = { viewModel.setSort(it) },
+                                onResetSort = { viewModel.resetSort() },
                                 onFilter = { viewModel.setFilter(it) },
                                 onRefresh = { viewModel.reload() },
                                 calendarOpen = calendarOpen,

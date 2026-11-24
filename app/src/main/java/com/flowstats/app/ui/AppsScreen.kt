@@ -66,6 +66,7 @@ fun AppsScreen(
     onOpenApp: (AppUsage) -> Unit,
     onQuery: (String) -> Unit,
     onSort: (SortBy) -> Unit,
+    onResetSort: () -> Unit = {},
     onFilter: (AppFilter) -> Unit,
     onRefresh: () -> Unit,
     calendarOpen: Boolean = false,
@@ -179,7 +180,7 @@ fun AppsScreen(
                         .background(MaterialTheme.colorScheme.surface)
                         .clickable { sortOpen = true }
                         .padding(horizontal = 12.dp, vertical = 7.dp)
-                ) { Text("⇅ 排序", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                ) { Text("⇅ " + state.sortBy.label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 Spacer(Modifier.width(8.dp))
                 val rotation by animateFloatAsState(if (state.refreshing) 360f else 0f, tween(700), label = "refresh")
                 Box(
@@ -219,7 +220,7 @@ fun AppsScreen(
                     modifier = Modifier.clickable { onShiftDate(1) }.padding(horizontal = 8.dp))
             }
 
-            Crossfade(targetState = Triple(state.period, state.filter, state.query), label = "list") {
+            Crossfade(targetState = listOf(state.period, state.filter, state.sortBy, state.query), label = "list") {
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 96.dp)
@@ -230,8 +231,24 @@ fun AppsScreen(
                                 fontSize = 12.sp, modifier = Modifier.padding(18.dp))
                         }
                     }
+                    item {
+                        Text(
+                            "当前按${state.sortBy.label}从高到低排列" +
+                                (if (state.sortOverridden) "（手动指定）" else "（跟随筛选）") +
+                                "　·　右侧数字为总流量",
+                            fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+                    // 进度条长度按当前排序维度归一化，避免与列表顺序口径不一致
+                    val barMax = when (state.sortBy) {
+                        SortBy.TOTAL -> state.visibleApps.maxOfOrNull { it.total }
+                        SortBy.MOBILE -> state.visibleApps.maxOfOrNull { it.mobile }
+                        SortBy.WIFI -> state.visibleApps.maxOfOrNull { it.wifi }
+                        SortBy.NAME -> state.visibleApps.maxOfOrNull { it.total }
+                    }?.toFloat()?.coerceAtLeast(1f) ?: 1f
                     itemsIndexed(state.visibleApps, key = { _, app -> app.uid }) { index, app ->
-                        AppRow(app, index, state.visibleApps.maxOfOrNull { it.total }?.toFloat()?.coerceAtLeast(1f) ?: 1f) { onOpenApp(app) }
+                        AppRow(app, index, barMax) { onOpenApp(app) }
                     }
                     item {
                         Text("橙色 = 移动网络　青色 = WiFi", fontSize = 11.sp,
@@ -277,6 +294,20 @@ fun AppsScreen(
                         }
                     }
                 }
+                if (state.sortOverridden) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onResetSort(); sortOpen = false }
+                            .padding(vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("恢复跟随筛选", fontSize = 13.sp, color = Blue)
+                    }
+                }
+                Text(
+                    "未手动指定时，排序维度会自动跟随筛选：选「移动」按移动流量降序、选「WiFi」按 WiFi 流量降序。",
+                    fontSize = 9.sp, lineHeight = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.height(12.dp))
             }
         }

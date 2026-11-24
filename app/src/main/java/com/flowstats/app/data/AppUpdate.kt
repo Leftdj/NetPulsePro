@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v5.7", 36, "筛选移动/WiFi 后自动按该维度流量降序排列"),
         ReleaseNote("v5.6", 35, "新增 mDNS/UPnP/NetBIOS 设备身份发现与 OUI 表扩充"),
         ReleaseNote("v5.5", 34, "本机图标改手机、未知终端改中性图标；详情弹窗卡片去阴影"),
         ReleaseNote("v5.4", 33, "链路质量历史支持查看全部记录"),

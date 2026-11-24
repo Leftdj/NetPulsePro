@@ -67,6 +67,8 @@ data class UiState(
     val query: String = "",
     val sortBy: SortBy = SortBy.TOTAL,
     val filter: AppFilter = AppFilter.ALL,
+    /** 用户是否手动选过排序方式；未手动选时排序维度自动跟随筛选 */
+    val sortOverridden: Boolean = false,
     val darkTheme: Boolean = false,
     val refreshHz: Int = 1000,
     /** DNS 对比自动刷新间隔（毫秒）：按用户要求固定为 1 秒 */
@@ -795,8 +797,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
     fun setQuery(query: String) { _ui.value = _ui.value.copy(query = query) }
-    fun setSort(sort: SortBy) { _ui.value = _ui.value.copy(sortBy = sort) }
-    fun setFilter(filter: AppFilter) { _ui.value = _ui.value.copy(filter = filter) }
+    fun setSort(sort: SortBy) {
+        _ui.value = _ui.value.copy(sortBy = sort, sortOverridden = true)
+    }
+
+    /** 恢复自动模式：排序维度重新跟随当前筛选 */
+    fun resetSort() {
+        val current = _ui.value
+        val autoSort = when (current.filter) {
+            AppFilter.MOBILE -> SortBy.MOBILE
+            AppFilter.WIFI -> SortBy.WIFI
+            AppFilter.ALL, AppFilter.LARGE -> SortBy.TOTAL
+        }
+        _ui.value = current.copy(sortBy = autoSort, sortOverridden = false)
+    }
+
+    /**
+     * 切换筛选时同步排序维度：筛选「移动」就按移动流量从高到低，筛选「WiFi」就按 WiFi 流量，
+     * 避免列表仍按总流量排序、导致红圈里分项数值看起来乱序。
+     * 若用户已手动通过「排序」按钮选过方式，则尊重手动选择，不覆盖。
+     */
+    fun setFilter(filter: AppFilter) {
+        val current = _ui.value
+        val autoSort = when (filter) {
+            AppFilter.MOBILE -> SortBy.MOBILE
+            AppFilter.WIFI -> SortBy.WIFI
+            AppFilter.ALL, AppFilter.LARGE -> SortBy.TOTAL
+        }
+        _ui.value = current.copy(
+            filter = filter,
+            sortBy = if (current.sortOverridden) current.sortBy else autoSort
+        )
+    }
     fun toggleTheme() {
         val value = !_ui.value.darkTheme
         _ui.value = _ui.value.copy(darkTheme = value)
