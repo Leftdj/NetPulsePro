@@ -313,22 +313,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (pingJob?.isActive == true) return
         pingJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                runPingRound(quick = true, withDns = pingRound % 3 == 0)
+                runPingRound(quick = true, withDns = true)
                 pingRound++
-                // 每 150 轮（约 5 分钟）自动存一条检测快照到历史
-                if (pingRound % 150 == 0 && _ui.value.ping.ok) recordDiagnostic(_ui.value.ping)
+                // 每轮真实测量都存一条检测快照；仅在停留网络页时记录，避免后台常驻写盘与重组
+                if (_ui.value.networkVisible && _ui.value.ping.ok) recordDiagnostic(_ui.value.ping)
                 if (_ui.value.networkVisible) {
-                    // DNS 对比是对多个 DNS 服务器发起真实 UDP 解析，按可配置间隔节流（默认 15 秒），
-                    // 不再每 2 秒轰炸；内部有 dnsProbing 防重
+                    // DNS 对比每秒一次真实 UDP 解析，内部有 dnsProbing 防重
                     val now = System.currentTimeMillis()
                     if (now - lastDnsCompareAt >= _ui.value.dnsIntervalMs) {
                         runDnsCompare()
                         lastDnsCompareAt = now
                     }
                     // 公网 IP 是外部 HTTP，30 秒刷新一次，避免无效请求
-                    if (pingRound % 15 == 0) refreshPublicIp(force = true)
+                    if (pingRound % 30 == 0) refreshPublicIp(force = true)
                 }
-                delay(2_000L)
+                delay(1_000L)
             }
         }
     }

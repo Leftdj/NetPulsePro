@@ -308,16 +308,18 @@ fun NetworkScreen(
                         }
                     }
                     Spacer(Modifier.height(6.dp))
-                    Text(
-                        if (state.dnsProbing) "测试中…" else if (state.networkVisible) "手动重测" else "重新测试",
-                        fontSize = 11.sp,
-                        color = Blue,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .clickable(enabled = !state.dnsProbing) { onRunDnsCompare() }
-                            .padding(vertical = 4.dp, horizontal = 2.dp)
-                    )
+                    if (!state.networkVisible) {
+                        Text(
+                            if (state.dnsProbing) "测试中…" else "重新测试",
+                            fontSize = 11.sp,
+                            color = Blue,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .clickable(enabled = !state.dnsProbing) { onRunDnsCompare() }
+                                .padding(vertical = 4.dp, horizontal = 2.dp)
+                        )
+                    }
                 }
             }
 
@@ -325,7 +327,7 @@ fun NetworkScreen(
             Spacer(Modifier.height(14.dp))
             SectionTitle(
                 "网络质量",
-                trailing = if (state.networkVisible) "每 2 秒自动刷新"
+                trailing = if (state.networkVisible) "每 1 秒自动刷新"
                 else if (state.pingRunning) "测量中…" else "ICMP 实测"
             )
             Spacer(Modifier.height(9.dp))
@@ -410,27 +412,31 @@ fun NetworkScreen(
                         MiniStat("DNS", state.dnsMs?.let { String.format(Locale.US, "%.0f ms", it) } ?: "--")
                     }
 
-                    Spacer(Modifier.height(12.dp))
-                    Box(
-                        Modifier.fillMaxWidth().height(42.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(
-                                if (state.pingRunning) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                else MaterialTheme.colorScheme.primary
+                    if (!state.networkVisible) {
+                        // 仅在不自动刷新的页面保留手动入口
+                        Spacer(Modifier.height(12.dp))
+                        Box(
+                            Modifier.fillMaxWidth().height(42.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (state.pingRunning) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.primary
+                                )
+                                .clickable(enabled = !state.pingRunning) { onRunDiagnostics() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                if (state.pingRunning) "正在测量…" else "重新测量",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            .clickable(enabled = !state.pingRunning) { onRunDiagnostics() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            if (state.pingRunning) "正在测量…" else if (state.networkVisible) "手动重测" else "重新测量",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Ping 使用系统 ping 命令发起真实 ICMP；DNS 延迟是直接向 DNS 服务器查询的往返时间，不受系统缓存影响。网络页每 2 秒自动刷新。",
+                        "Ping 使用系统 ping 命令发起真实 ICMP（每秒 2 个包）；DNS 延迟是直接向 DNS 服务器查询的往返时间，不受系统缓存影响。" +
+                            "网络页每 1 秒自动刷新，每轮结果自动存入检测历史。包数少意味着丢包率只有 0%/50% 两档。",
                         fontSize = 9.sp,
                         lineHeight = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
@@ -1289,17 +1295,17 @@ private fun DiagnosticHistoryCard(records: List<com.flowstats.app.data.Diagnosti
         Column(Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
             // 统计三卡
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HistoryStat("今天", stats.today, "最多 30 条", Blue, Modifier.weight(1f))
-                HistoryStat("昨天", stats.yesterday, "最多 30 条", Purple, Modifier.weight(1f))
-                HistoryStat("本周", stats.week, "最多 100 条", Orange, Modifier.weight(1f))
+                HistoryStat("今天", stats.today, "最多 300 条", Blue, Modifier.weight(1f))
+                HistoryStat("昨天", stats.yesterday, "最多 300 条", Purple, Modifier.weight(1f))
+                HistoryStat("本周", stats.week, "最多 1000 条", Orange, Modifier.weight(1f))
             }
             Spacer(Modifier.height(10.dp))
-            Text("保留规则：今天最多 30 条、昨天最多 30 条、本周最多 100 条",
+            Text("保留规则：今天最多 300 条、昨天最多 300 条、本周最多 1000 条（每秒自动记录一条真实快照）",
                 fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f))
             Spacer(Modifier.height(10.dp))
             // 显示条数筛选
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                listOf(10, 30, 100).forEach { n ->
+                listOf(10, 30, 100, 300).forEach { n ->
                     val selected = showCount == n
                     Box(
                         Modifier.clip(RoundedCornerShape(9.dp))
@@ -1317,7 +1323,7 @@ private fun DiagnosticHistoryCard(records: List<com.flowstats.app.data.Diagnosti
 
             if (records.isEmpty()) {
                 Text(
-                    "暂无检测记录。手动点「重新测量」，或停留网络页每 5 分钟会自动存一条真实快照。",
+                    "暂无检测记录。停留网络页时每 1 秒自动测量并存一条真实快照，最多保留今天 300 条 / 本周 1000 条。",
                     fontSize = 11.sp, lineHeight = 16.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

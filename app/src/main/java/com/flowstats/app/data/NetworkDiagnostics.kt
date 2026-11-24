@@ -62,11 +62,12 @@ object NetworkDiagnostics {
     }
 
     /**
-     * 轻量轮询用：包少、间隔短，整轮 1~2 秒内结束，
-     * 这样总览页的延迟/抖动/丢包可以持续刷新而不拖慢界面。
+     * 1 秒轮询专用：2 个包、间隔 0.2 秒、超时 1 秒，整轮约 0.5 秒内结束，
+     * 保证能在 1 秒周期内完成且不与前一轮重叠。包数少意味着丢包率只有 0%/50% 两档，
+     * 这是为「每秒刷新」做的精度取舍，不伪造任何数值。
      */
     fun pingQuick(host: String = DEFAULT_HOST): PingReport =
-        pingInternal(host.ifBlank { DEFAULT_HOST }, count = 4, interval = "0.3", timeoutSec = 2)
+        pingInternal(host.ifBlank { DEFAULT_HOST }, count = 2, interval = "0.2", timeoutSec = 1)
 
     private fun pingInternal(target: String, count: Int, interval: String, timeoutSec: Int): PingReport {
         val samples = mutableListOf<Double>()

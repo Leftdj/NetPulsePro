@@ -40,9 +40,10 @@ object DiagnosticHistory {
 
     private const val PREF = "diagnostic_history"
     private const val KEY = "records"
-    private const val MAX_TODAY = 30
-    private const val MAX_YESTERDAY = 30
-    private const val MAX_WEEK = 100
+    // 每 1 秒自动记录一条，容量需覆盖约 5 分钟；写入用 apply 异步，不阻塞主线程
+    private const val MAX_TODAY = 300
+    private const val MAX_YESTERDAY = 300
+    private const val MAX_WEEK = 1000
 
     @Volatile
     private var cached: List<DiagnosticRecord>? = null
