@@ -18,16 +18,47 @@ class UsageRepository(private val context: Context) {
         context.getSystemService(Context.NETWORK_STATS_SERVICE) as NetworkStatsManager
     private val packageManager: PackageManager = context.packageManager
 
-    /** 需要用户在「设置 - 应用使用权限/usage access」中手动授予 */
+    /** 权限探测结果三态：明确允许 / 明确拒绝 / 无法判定（交给上层兜底） */
+    enum class PermissionProbe { GRANTED, DENIED, UNKNOWN }
+
+    /** AppOps 快照检查：瞬时值，部分 ROM 在权限服务未同步时会短暂返回非 ALLOWED */
     fun hasUsagePermission(): Boolean = try {
         val ops = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        ops.checkOpNoThrow(
+        val mode = ops.checkOpNoThrow(
             AppOpsManager.OPSTR_GET_USAGE_STATS,
             Process.myUid(),
             context.packageName
-        ) == AppOpsManager.MODE_ALLOWED
+        )
+        // MODE_DEFAULT 在部分定制 ROM 上等价于已允许（系统未显式拒绝）
+        mode == AppOpsManager.MODE_ALLOWED || mode == AppOpsManager.MODE_DEFAULT
     } catch (e: Exception) {
         false
+    }
+
+    /**
+     * 真实能力探测：尝试读取最近一天的流量明细。
+     * - 拿到结果（哪怕没有数据）→ GRANTED，说明系统允许本次查询；
+     * - 明确 SecurityException → DENIED，确实无权限；
+     * - 返回 null 或机型不支持等其它异常 → UNKNOWN，不作为判定依据。
+     * 这样既不误报未授权，也不会在真无权限时错误地隐藏授权入口。
+     */
+    fun probeUsageAccess(): PermissionProbe {
+        var stats: NetworkStats? = null
+        return try {
+            val end = System.currentTimeMillis()
+            val start = end - DAY_MILLIS
+            stats = statsManager.queryDetails(
+                android.net.ConnectivityManager.TYPE_WIFI, null, start, end
+            )
+            // 部分 ROM 用「返回 null」代替抛异常表示不可用，此时仍无法判定
+            if (stats == null) PermissionProbe.UNKNOWN else PermissionProbe.GRANTED
+        } catch (e: SecurityException) {
+            PermissionProbe.DENIED
+        } catch (e: Exception) {
+            PermissionProbe.UNKNOWN
+        } finally {
+            try { stats?.close() } catch (_: Exception) {}
+        }
     }
 
     fun rangeFor(period: Period, offset: Int): Pair<Long, Long> {

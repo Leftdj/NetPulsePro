@@ -13,6 +13,7 @@ import com.flowstats.app.data.DnsProbe
 import com.flowstats.app.data.LanReport
 import com.flowstats.app.data.LanScanner
 import com.flowstats.app.data.LinkGrading
+import com.flowstats.app.data.UsageRepository.PermissionProbe
 import com.flowstats.app.data.LinkQualityHistory
 import com.flowstats.app.data.LinkQualitySample
 import com.flowstats.app.data.MemoryStat
@@ -61,6 +62,8 @@ data class UiState(
     val speed: SpeedSample = SpeedSample(),
     val history: List<SpeedSample> = emptyList(),
     val permissionGranted: Boolean = false,
+    /** 权限检查是否已完成；未完成前不渲染「未授权」横幅，避免启动时闪一下 */
+    val permissionChecked: Boolean = false,
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val message: String? = null,
@@ -705,13 +708,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .launchIn(viewModelScope)
     }
 
+    private var permissionJob: Job? = null
+
+    /**
+     * 权限状态判定。
+     * 修复「已授权却偶发显示未授权」：AppOps 的 checkOpNoThrow 是瞬时快照，部分 ROM 在
+     * 权限服务未同步、或从设置页返回的瞬间会短暂返回非 ALLOWED，若直接采信就会点亮横幅，
+     * 而此时数据其实能正常读取（截图里「提示未授权但已有 9.59 GB」即由此产生）。
+     *
+     * 改为三重判据：
+     * 1. 真实能力探测 canReadUsageStats() —— 能否实际读到流量，优先级最高；
+     * 2. AppOps 快照 —— 只作为辅助；
+     * 3. 已有真实数据 —— 数据存在即说明权限有效，禁止误降级。
+     * 只有 AppOps 为 false 且真实探测被 SecurityException 明确拒绝时，才判定为未授权。
+     */
     fun checkPermission() {
-        val granted = repository.hasUsagePermission()
-        val wasGranted = _ui.value.permissionGranted
-        _ui.value = _ui.value.copy(permissionGranted = granted)
-        if (granted && !wasGranted) {
-            startSpeedMonitor()
-            reload()
+        permissionJob?.cancel()
+        permissionJob = viewModelScope.launch(Dispatchers.IO) {
+            val snapshot = repository.hasUsagePermission()
+            val probe = repository.probeUsageAccess()
+            // 界面上已有真实统计数据时，不应仅凭一次快照把状态翻转成未授权
+            val hasRealData = _ui.value.summary.total > 0 || _ui.value.apps.isNotEmpty()
+            val granted = when (probe) {
+                // 明确拒绝时，若界面已有真实统计，仍不立刻翻转（避免权限服务瞬时抖动）
+                PermissionProbe.DENIED -> hasRealData
+                PermissionProbe.GRANTED -> true
+                PermissionProbe.UNKNOWN -> snapshot || hasRealData
+            }
+            withContext(Dispatchers.Main) {
+                val current = _ui.value
+                val wasGranted = current.permissionGranted
+                _ui.value = current.copy(
+                    permissionGranted = granted,
+                    permissionChecked = true
+                )
+                if (granted && !wasGranted) {
+                    startSpeedMonitor()
+                    reload()
+                }
+            }
         }
     }
 
@@ -878,10 +913,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val today = repository.totalsFor(nowRange.first, nowRange.second)
                 val month = repository.totalsFor(monthRange.first, monthRange.second)
                 if (token != reloadToken) return@launch
+                // 能成功读到真实统计，即证明权限有效；据此回正状态，避免横幅与数据自相矛盾
+                val readRealData = summary.total > 0 || apps.isNotEmpty()
                 _ui.value = _ui.value.copy(
                     apps = apps, summary = summary, today = today, month = month, dateLabel = reqLabel,
                     viewDate = start,
                     loading = false, refreshing = false,
+                    permissionGranted = if (readRealData) true else _ui.value.permissionGranted,
+                    permissionChecked = true,
                     message = if (apps.isEmpty() && granted) "该时间段暂无流量记录" else null
                 )
                 // 历史数据较慢，分批加载，避免主列表卡顿

@@ -162,7 +162,7 @@ fun OverviewScreen(
         Column(Modifier.padding(horizontal = 16.dp)) {
 
             // ── 权限未授予提示 ──────────────────────────
-            if (!state.permissionGranted) {
+            if (state.permissionChecked && !state.permissionGranted) {
                 Spacer(Modifier.height(18.dp))
                 SoftCard(
                     Modifier.fillMaxWidth().clickable(onClick = onOpenUsageSettings),

@@ -134,7 +134,7 @@ fun SpeedScreen(
         Box(Modifier.fillMaxWidth().background(Brush.linearGradient(HeroColors))) {
             Column {
                 TopBar("网络速度", transparent = true, onMenu = onMenu, onAction = onOpenSettings)
-                if (!state.permissionGranted) PermissionBanner(onOpenSettings)
+                if (state.permissionChecked && !state.permissionGranted) PermissionBanner(onOpenSettings)
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                     verticalAlignment = Alignment.CenterVertically

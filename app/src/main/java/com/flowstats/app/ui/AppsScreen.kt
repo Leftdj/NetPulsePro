@@ -80,7 +80,7 @@ fun AppsScreen(
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxSize()) {
             TopBar("应用统计", onMenu = onMenu, onAction = onOpenSettings)
-            if (!state.permissionGranted) PermissionBanner(onOpenSettings)
+            if (state.permissionChecked && !state.permissionGranted) PermissionBanner(onOpenSettings)
 
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)

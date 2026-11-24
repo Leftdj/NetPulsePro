@@ -2,6 +2,15 @@
 
 本项目所有版本均对应 `app/build.gradle.kts` 中的 `versionCode` / `versionName`，与应用内「版本信息」弹窗中的更新日志保持一致。数据均来自 Android 系统公开接口，不估算、不伪造。
 
+## v5.8（build 37）—— 2026-11-24
+
+### 修复（权限状态误判）
+- **已授权却偶发显示「需要开启使用权限」**：原实现在 `ON_RESUME` 时用 `AppOpsManager.checkOpNoThrow` 的一次瞬时快照直接覆盖状态，部分定制 ROM 在权限服务未同步、或从设置页返回的瞬间会短暂返回非 `MODE_ALLOWED`，导致横幅被点亮；而此时数据仍能正常读取，形成「提示未授权却已有 9.59 GB 数据」的矛盾画面
+- 改为**三态组合判据**：新增 `probeUsageAccess()` 真实尝试读取最近一天流量明细——`SecurityException` 为 DENIED、成功拿到结果为 GRANTED、机型不支持或返回 null 为 UNKNOWN；以「能否真实读到数据」为最高判据，AppOps 快照降为辅助
+- 界面已有真实统计数据时禁止误降级；`reload()` 成功读到数据后回正权限状态
+- 新增 `permissionChecked` 标志，权限检查完成前不渲染横幅，消除启动瞬间的横幅闪现
+- 兼容部分 ROM 返回 `MODE_DEFAULT`（系统未显式拒绝）的情况
+
 ## v5.7（build 36）—— 2026-11-24
 
 ### 修复（应用列表排序口径）
