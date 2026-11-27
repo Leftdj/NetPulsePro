@@ -11,8 +11,8 @@ android {
         applicationId = "com.flowstats.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 39
-        versionName = "6.0"
+        versionCode = 40
+        versionName = "6.1"
     }
 
     buildTypes {
@@ -39,5 +39,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Haze：Compose 背景模糊（液态玻璃），minSdk 26 以下自动降级为半透明
+    implementation("dev.chrisbanes.haze:haze:1.6.5")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

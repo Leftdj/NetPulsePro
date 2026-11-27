@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v6.1", 40, "引入 Haze 实现真正的液态玻璃背景模糊"),
         ReleaseNote("v6.0", 39, "局部液态玻璃：顶栏/底栏/弹窗玻璃质感"),
         ReleaseNote("v5.9", 38, "网络页改每秒自动刷新并自动记录检测历史"),
         ReleaseNote("v5.8", 37, "修复已授权却偶发显示未授权横幅"),

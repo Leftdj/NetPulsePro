@@ -1,5 +1,7 @@
 package com.flowstats.app.ui
 
+import androidx.compose.runtime.compositionLocalOf
+import dev.chrisbanes.haze.HazeState
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
@@ -200,6 +202,9 @@ fun SoftCard(
             .background(color)
     ) { content() }
 }
+
+/** 供顶栏等子组件访问外层 HazeState，实现跨页面的真实背景模糊 */
+val LocalHazeState = compositionLocalOf<HazeState?> { null }
 
 /**
  * 液态玻璃质感容器（局部点缀用，不覆盖数据卡片）。

@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -81,6 +82,11 @@ import com.flowstats.app.data.AppUsage
 import com.flowstats.app.ui.AppDetailScreen
 import com.flowstats.app.ui.AppsScreen
 import com.flowstats.app.ui.GlassSurface
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import com.flowstats.app.ui.DatePickerSheet
 import com.flowstats.app.ui.InsightsScreen
 import com.flowstats.app.ui.MainViewModel
@@ -117,6 +123,12 @@ class MainActivity : ComponentActivity() {
                 var calendarOpen by remember { mutableStateOf(false) }
                 var lastBackPress by remember { mutableStateOf(0L) }
                 val context = LocalContext.current
+
+                // 液态玻璃：页面内容作为模糊源，悬浮底栏与顶栏对其做背景模糊
+                val hazeState = rememberHazeState()
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.flowstats.app.ui.LocalHazeState provides hazeState
+                ) {
 
                 // 逐层返回：抽屉 → 详情 → 回到总览 → 再按一次退出
                 BackHandler {
@@ -268,6 +280,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     AnimatedContent(
+                        modifier = Modifier.hazeSource(hazeState),
                         targetState = screen,
                         transitionSpec = {
                             (fadeIn(tween(260)) + slideInHorizontally(tween(300)) { it / 12 }) togetherWith
@@ -358,8 +371,9 @@ class MainActivity : ComponentActivity() {
                         exit = slideOutVertically(tween(250)) { it },
                         modifier = Modifier.align(Alignment.BottomCenter)
                             .navigationBarsPadding()
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        BottomNav(current = screen) { target ->
+                        BottomNav(current = screen, hazeState = hazeState) { target ->
                             screen = target
                             drawerOpen = false
                         }
@@ -448,12 +462,18 @@ class MainActivity : ComponentActivity() {
                 }
 
             }
+            }
         }
     }
 }
 
 @Composable
-private fun BottomNav(current: Screen, onSelect: (Screen) -> Unit) {
+@OptIn(ExperimentalHazeApi::class)
+private fun BottomNav(
+    current: Screen,
+    hazeState: dev.chrisbanes.haze.HazeState,
+    onSelect: (Screen) -> Unit
+) {
     val items = listOf(
         "总览" to Screen.Overview,
         "流量" to Screen.Flow,
@@ -461,13 +481,18 @@ private fun BottomNav(current: Screen, onSelect: (Screen) -> Unit) {
         "网络" to Screen.Network,
         "设置" to Screen.Settings
     )
-    // 底部导航用玻璃质感：半透明底 + 顶部高光，数据卡片不受影响
-    GlassSurface(
-        Modifier.fillMaxWidth(),
-        tint = MaterialTheme.colorScheme.surface,
-        corner = 0.dp,
-        alpha = 0.88f,
-        glow = false
+    // 悬浮胶囊 + 真实背景模糊：背后的页面内容被模糊后透出（参考液态玻璃底栏）
+    val hazeStyle = HazeStyle(
+        backgroundColor = Color.Transparent,
+        tint = dev.chrisbanes.haze.HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)),
+        blurRadius = 18.dp,
+        noiseFactor = 0.06f
+    )
+    Box(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .hazeEffect(hazeState, style = hazeStyle)
+            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(26.dp))
     ) {
     Column(Modifier.fillMaxWidth()) {
         // 极细分割线代替阴影，和卡片风格保持一致

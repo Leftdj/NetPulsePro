@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -62,6 +64,7 @@ import java.util.Locale
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalHazeApi::class)
 @Composable
 fun TopBar(
     title: String,
@@ -82,15 +85,36 @@ fun TopBar(
             verticalAlignment = Alignment.CenterVertically
         ) { TopBarContent(title, tint, transparent, onMenu, onAction) }
     } else {
-        GlassSurface(
-            barModifier,
-            tint = MaterialTheme.colorScheme.surface,
-            corner = 0.dp,
-            alpha = 0.86f,
-            glow = false
-        ) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TopBarContent(title, tint, transparent, onMenu, onAction)
-        } }
+        val hazeState = LocalHazeState.current
+        if (hazeState != null) {
+            // 顶栏真实背景模糊：透出页面内容
+            Row(
+                barModifier
+                    .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
+                    .hazeEffect(
+                        state = hazeState,
+                        style = dev.chrisbanes.haze.HazeStyle(
+                            backgroundColor = Color.Transparent,
+                            tint = dev.chrisbanes.haze.HazeTint(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
+                            ),
+                            blurRadius = 16.dp,
+                            noiseFactor = 0.05f
+                        )
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) { TopBarContent(title, tint, transparent, onMenu, onAction) }
+        } else {
+            GlassSurface(
+                barModifier,
+                tint = MaterialTheme.colorScheme.surface,
+                corner = 0.dp,
+                alpha = 0.86f,
+                glow = false
+            ) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TopBarContent(title, tint, transparent, onMenu, onAction)
+            } }
+        }
     }
 }
 
