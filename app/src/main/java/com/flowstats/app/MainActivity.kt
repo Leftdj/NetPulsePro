@@ -17,6 +17,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -29,8 +30,10 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +42,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +102,20 @@ import com.flowstats.app.ui.theme.Blue
 import com.flowstats.app.ui.theme.FlowStatsTheme
 import com.flowstats.app.ui.theme.HeroColors
 import com.flowstats.app.ui.theme.Purple
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private sealed interface Screen {
     data object Overview : Screen
@@ -371,7 +390,7 @@ class MainActivity : ComponentActivity() {
                         exit = slideOutVertically(tween(250)) { it },
                         modifier = Modifier.align(Alignment.BottomCenter)
                             .navigationBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .padding(horizontal = 18.dp, vertical = 12.dp)
                     ) {
                         BottomNav(current = screen, hazeState = hazeState) { target ->
                             screen = target
@@ -484,24 +503,153 @@ private fun BottomNav(
     // 悬浮胶囊 + 真实背景模糊：背后的页面内容被模糊后透出（参考液态玻璃底栏）
     val hazeStyle = HazeStyle(
         backgroundColor = Color.Transparent,
-        tint = dev.chrisbanes.haze.HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)),
-        blurRadius = 18.dp,
-        noiseFactor = 0.06f
+        tint = dev.chrisbanes.haze.HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)),
+        blurRadius = 22.dp,
+        noiseFactor = 0.05f
     )
-    Box(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
+    // 胶囊形状：percent 50 让圆角恒等于高度的一半，两端是真正的半圆
+    val capsule = RoundedCornerShape(percent = 50)
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val currentNow = rememberUpdatedState(current)
+    // 高亮块：settle 负责补间，dragPx 负责跟手；拖动时直接用 dragPx，避免动画滞后
+    val settle = remember { Animatable(0f) }
+    var dragPx by remember { mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    // 按下压扁 → 松手回弹：0 = 常态，1 = 压到最扁
+    val squash by animateFloatAsState(
+        targetValue = if (dragging) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "navSquash"
+    )
+    val rubberBand = with(density) { 10.dp.toPx() }
+    // 每格宽度（px）：布局阶段实测后写入，供手势逻辑读取
+    val itemSizePx = remember { mutableFloatStateOf(0f) }
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .height(68.dp)
+            // 压扁：横向拉宽一点、纵向压矮一点，并轻微下沉，像一颗被按住的软胶囊
+            .graphicsLayer {
+                scaleX = 1f + 0.03f * squash
+                scaleY = 1f - 0.055f * squash
+                translationY = 2.dp.toPx() * squash
+            }
+            .clip(capsule)
             .hazeEffect(hazeState, style = hazeStyle)
-            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(26.dp))
+            .border(1.2.dp, Color.White.copy(alpha = 0.34f), capsule)
+            // 长按后左右滑动切换页面（参考液态玻璃的「按住-拖动-回弹」）
+            // 自管理手势：长按前完全不拦截，点击照常落到子项；长按后才接管并跟随手指
+            .pointerInput(items.size) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial
+                    )
+                    var longPressed = false
+                    var lastX = down.position.x
+                    val startX = down.position.x
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (!longPressed) {
+                            // 长按之前手指就滑开了，说明不是这个手势，交还给子项/上层
+                            if (abs(change.position.x - startX) > viewConfiguration.touchSlop) break
+                            if (change.uptimeMillis - down.uptimeMillis >=
+                                viewConfiguration.longPressTimeoutMillis
+                            ) {
+                                longPressed = true
+                                dragPx = settle.value
+                                dragging = true
+                                lastX = change.position.x
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                        } else {
+                            val dx = change.position.x - lastX
+                            lastX = change.position.x
+                            if (dx != 0f) {
+                                change.consume()
+                                val idx = items.indexOfFirst { it.second == currentNow.value }
+                                    .coerceAtLeast(0)
+                                val raw = dragPx + dx
+                                val base = idx * itemSizePx.floatValue
+                                val step = itemSizePx.floatValue * 0.5f
+                                val next = when {
+                                    raw - base > step && idx < items.lastIndex -> idx + 1
+                                    raw - base < -step && idx > 0 -> idx - 1
+                                    else -> idx
+                                }
+                                if (next != idx) {
+                                    onSelect(items[next].second)
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                // 两端橡皮筋：只允许溢出很小一段
+                                val minX = -rubberBand
+                                val maxX = items.lastIndex * itemSizePx.floatValue + rubberBand
+                                dragPx = raw.coerceIn(minX, maxX)
+                            }
+                        }
+                    }
+                    if (longPressed) {
+                        // 松手·回弹：先把补间值对齐到手指停的位置，再交给弹簧吸到最近一格
+                        scope.launch {
+                            settle.snapTo(dragPx)
+                            dragging = false
+                        }
+                    }
+                }
+            }
     ) {
-    Column(Modifier.fillMaxWidth()) {
-        // 极细分割线代替阴影，和卡片风格保持一致
+        val itemWidth = maxWidth / items.size
+        val itemPx = with(density) { itemWidth.toPx() }
+        SideEffect { itemSizePx.floatValue = itemPx }
+        val selectedIndex = items.indexOfFirst { it.second == current }.coerceAtLeast(0)
+        // 只有非拖动状态才补间：点击切页、以及松手后的吸附都走这里
+        LaunchedEffect(selectedIndex, itemPx, dragging) {
+            if (!dragging) {
+                settle.animateTo(
+                    selectedIndex * itemPx,
+                    spring(
+                        dampingRatio = 0.55f,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+        // 玻璃厚度感：顶部一道高光，向下渐隐
         Box(
-            Modifier.fillMaxWidth().height(0.5.dp)
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f))
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.02f))
+                )
+            )
+        )
+        // 滑动的胶囊高亮块，位于图标下层
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .offset {
+                    val x = if (dragging) dragPx else settle.value
+                    IntOffset(x.roundToInt(), 0)
+                }
+                .width(itemWidth)
+                .fillMaxHeight()
+                .padding(horizontal = 5.dp, vertical = 12.dp)
+                .clip(capsule)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Blue.copy(alpha = 0.30f), Purple.copy(alpha = 0.18f))
+                    )
+                )
+                .border(0.8.dp, Color.White.copy(alpha = 0.50f), capsule)
         )
         Row(
-            Modifier.fillMaxWidth().height(64.dp),
+            Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { (label, target) ->
@@ -510,19 +658,28 @@ private fun BottomNav(
                     targetValue = if (on) Blue else MaterialTheme.colorScheme.onSurfaceVariant,
                     animationSpec = tween(220), label = "navTint"
                 )
-                val active by animateFloatAsState(
-                    targetValue = if (on) 1f else 0f,
-                    animationSpec = tween(220), label = "navActive"
+                val scale by animateFloatAsState(
+                    targetValue = if (on) 1f else 0.92f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "navScale"
                 )
                 Column(
-                    Modifier.weight(1f).fillMaxHeight().clickable { onSelect(target) },
+                    Modifier.weight(1f).fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onSelect(target) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     Box(
-                        Modifier.size(width = 40.dp, height = 26.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(Blue.copy(alpha = 0.12f * active)),
+                        Modifier.size(22.dp).graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                        },
                         contentAlignment = Alignment.Center
                     ) {
                         NavIcon(target, tint, Modifier.size(21.dp))
@@ -537,7 +694,6 @@ private fun BottomNav(
                 }
             }
         }
-    }
     }
 }
 
