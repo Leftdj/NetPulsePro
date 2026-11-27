@@ -87,6 +87,7 @@ import com.flowstats.app.data.AppUsage
 import com.flowstats.app.ui.AppDetailScreen
 import com.flowstats.app.ui.AppsScreen
 import com.flowstats.app.ui.GlassSurface
+import com.flowstats.app.ui.LiquidNavBar
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.hazeEffect
@@ -145,6 +146,10 @@ class MainActivity : ComponentActivity() {
 
                 // 液态玻璃：页面内容作为模糊源，悬浮底栏与顶栏对其做背景模糊
                 val hazeState = rememberHazeState()
+                val navTabs = remember {
+                    listOf(Screen.Overview, Screen.Flow, Screen.Apps, Screen.Network, Screen.Settings)
+                }
+                val navLabels = remember { listOf("总览", "流量", "应用", "网络", "设置") }
                 androidx.compose.runtime.CompositionLocalProvider(
                     com.flowstats.app.ui.LocalHazeState provides hazeState
                 ) {
@@ -392,10 +397,18 @@ class MainActivity : ComponentActivity() {
                             .navigationBarsPadding()
                             .padding(horizontal = 18.dp, vertical = 12.dp)
                     ) {
-                        BottomNav(current = screen, hazeState = hazeState) { target ->
-                            screen = target
-                            drawerOpen = false
-                        }
+                        LiquidNavBar(
+                            labels = navLabels,
+                            selectedIndex = navTabs.indexOf(screen).coerceAtLeast(0),
+                            onSelect = { idx ->
+                                screen = navTabs[idx]
+                                drawerOpen = false
+                            },
+                            hazeState = hazeState,
+                            icon = { idx, tint, iconModifier ->
+                                NavIcon(navTabs[idx], tint, iconModifier)
+                            }
+                        )
                     }
 
                     // 抽屉覆盖层：遮罩与面板共用一个进度值，保证严格同步、不再出现遮罩丢失
@@ -481,217 +494,6 @@ class MainActivity : ComponentActivity() {
                 }
 
             }
-            }
-        }
-    }
-}
-
-@Composable
-@OptIn(ExperimentalHazeApi::class)
-private fun BottomNav(
-    current: Screen,
-    hazeState: dev.chrisbanes.haze.HazeState,
-    onSelect: (Screen) -> Unit
-) {
-    val items = listOf(
-        "总览" to Screen.Overview,
-        "流量" to Screen.Flow,
-        "应用" to Screen.Apps,
-        "网络" to Screen.Network,
-        "设置" to Screen.Settings
-    )
-    // 悬浮胶囊 + 真实背景模糊：背后的页面内容被模糊后透出（参考液态玻璃底栏）
-    val hazeStyle = HazeStyle(
-        backgroundColor = Color.Transparent,
-        tint = dev.chrisbanes.haze.HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)),
-        blurRadius = 22.dp,
-        noiseFactor = 0.05f
-    )
-    // 胶囊形状：percent 50 让圆角恒等于高度的一半，两端是真正的半圆
-    val capsule = RoundedCornerShape(percent = 50)
-    val density = LocalDensity.current
-    val haptics = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val currentNow = rememberUpdatedState(current)
-    // 高亮块：settle 负责补间，dragPx 负责跟手；拖动时直接用 dragPx，避免动画滞后
-    val settle = remember { Animatable(0f) }
-    var dragPx by remember { mutableFloatStateOf(0f) }
-    var dragging by remember { mutableStateOf(false) }
-    // 按下压扁 → 松手回弹：0 = 常态，1 = 压到最扁
-    val squash by animateFloatAsState(
-        targetValue = if (dragging) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "navSquash"
-    )
-    val rubberBand = with(density) { 10.dp.toPx() }
-    // 每格宽度（px）：布局阶段实测后写入，供手势逻辑读取
-    val itemSizePx = remember { mutableFloatStateOf(0f) }
-    BoxWithConstraints(
-        Modifier
-            .fillMaxWidth()
-            .height(68.dp)
-            // 压扁：横向拉宽一点、纵向压矮一点，并轻微下沉，像一颗被按住的软胶囊
-            .graphicsLayer {
-                scaleX = 1f + 0.03f * squash
-                scaleY = 1f - 0.055f * squash
-                translationY = 2.dp.toPx() * squash
-            }
-            .clip(capsule)
-            .hazeEffect(hazeState, style = hazeStyle)
-            .border(1.2.dp, Color.White.copy(alpha = 0.34f), capsule)
-            // 长按后左右滑动切换页面（参考液态玻璃的「按住-拖动-回弹」）
-            // 自管理手势：长按前完全不拦截，点击照常落到子项；长按后才接管并跟随手指
-            .pointerInput(items.size) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(
-                        requireUnconsumed = false,
-                        pass = PointerEventPass.Initial
-                    )
-                    var longPressed = false
-                    var lastX = down.position.x
-                    val startX = down.position.x
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        if (!longPressed) {
-                            // 长按之前手指就滑开了，说明不是这个手势，交还给子项/上层
-                            if (abs(change.position.x - startX) > viewConfiguration.touchSlop) break
-                            if (change.uptimeMillis - down.uptimeMillis >=
-                                viewConfiguration.longPressTimeoutMillis
-                            ) {
-                                longPressed = true
-                                dragPx = settle.value
-                                dragging = true
-                                lastX = change.position.x
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            }
-                        } else {
-                            val dx = change.position.x - lastX
-                            lastX = change.position.x
-                            if (dx != 0f) {
-                                change.consume()
-                                val idx = items.indexOfFirst { it.second == currentNow.value }
-                                    .coerceAtLeast(0)
-                                val raw = dragPx + dx
-                                val base = idx * itemSizePx.floatValue
-                                val step = itemSizePx.floatValue * 0.5f
-                                val next = when {
-                                    raw - base > step && idx < items.lastIndex -> idx + 1
-                                    raw - base < -step && idx > 0 -> idx - 1
-                                    else -> idx
-                                }
-                                if (next != idx) {
-                                    onSelect(items[next].second)
-                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                }
-                                // 两端橡皮筋：只允许溢出很小一段
-                                val minX = -rubberBand
-                                val maxX = items.lastIndex * itemSizePx.floatValue + rubberBand
-                                dragPx = raw.coerceIn(minX, maxX)
-                            }
-                        }
-                    }
-                    if (longPressed) {
-                        // 松手·回弹：先把补间值对齐到手指停的位置，再交给弹簧吸到最近一格
-                        scope.launch {
-                            settle.snapTo(dragPx)
-                            dragging = false
-                        }
-                    }
-                }
-            }
-    ) {
-        val itemWidth = maxWidth / items.size
-        val itemPx = with(density) { itemWidth.toPx() }
-        SideEffect { itemSizePx.floatValue = itemPx }
-        val selectedIndex = items.indexOfFirst { it.second == current }.coerceAtLeast(0)
-        // 只有非拖动状态才补间：点击切页、以及松手后的吸附都走这里
-        LaunchedEffect(selectedIndex, itemPx, dragging) {
-            if (!dragging) {
-                settle.animateTo(
-                    selectedIndex * itemPx,
-                    spring(
-                        dampingRatio = 0.55f,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
-                )
-            }
-        }
-        // 玻璃厚度感：顶部一道高光，向下渐隐
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.02f))
-                )
-            )
-        )
-        // 滑动的胶囊高亮块，位于图标下层
-        Box(
-            Modifier
-                .align(Alignment.CenterStart)
-                .offset {
-                    val x = if (dragging) dragPx else settle.value
-                    IntOffset(x.roundToInt(), 0)
-                }
-                .width(itemWidth)
-                .fillMaxHeight()
-                .padding(horizontal = 5.dp, vertical = 12.dp)
-                .clip(capsule)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Blue.copy(alpha = 0.30f), Purple.copy(alpha = 0.18f))
-                    )
-                )
-                .border(0.8.dp, Color.White.copy(alpha = 0.50f), capsule)
-        )
-        Row(
-            Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items.forEach { (label, target) ->
-                val on = current == target
-                val tint by animateColorAsState(
-                    targetValue = if (on) Blue else MaterialTheme.colorScheme.onSurfaceVariant,
-                    animationSpec = tween(220), label = "navTint"
-                )
-                val scale by animateFloatAsState(
-                    targetValue = if (on) 1f else 0.92f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "navScale"
-                )
-                Column(
-                    Modifier.weight(1f).fillMaxHeight()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { onSelect(target) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Box(
-                        Modifier.size(22.dp).graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                        },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        NavIcon(target, tint, Modifier.size(21.dp))
-                    }
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        label,
-                        fontSize = 9.5.sp,
-                        color = tint,
-                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                }
             }
         }
     }

@@ -2,6 +2,30 @@
 
 本项目所有版本均对应 `app/build.gradle.kts` 中的 `versionCode` / `versionName`，与应用内「版本信息」弹窗中的更新日志保持一致。数据均来自 Android 系统公开接口，不估算、不伪造。
 
+## v7.0（build 43）—— 2026-11-27
+
+### 底部导航液态玻璃重做（本轮只做导航栏，不改功能逻辑）
+- **新增 `ui/LiquidGlass.kt`**：液态玻材质层
+  - `LiquidPalette` + `rememberLiquidPalette()`：按主题派生三套参数（浅色 / 深色 / AMOLED 纯黑），不写死颜色
+  - `liquidPillPath()`：两段半圆 + 上下两条带「腰」的三次贝塞尔桥；圆心距越远腰越细，重合时退化为标准胶囊——切换时是**一个形状在流动**，不是两个方块交叉
+  - `drawGlassBody()` / `drawGlassRim()`：竖向受光渐变 + 顶部内高光 + 底部内侧折射反光 + 左上亮右下暗的斜向渐变描边（玻璃厚度）
+  - `Modifier.liquidGlass()`：可复用表面，本体在下、描边在上，后续悬浮窗/弹窗/按钮直接套用
+  - `rememberReduceMotion()`：监听 `ANIMATOR_DURATION_SCALE`，关闭动画时只做位形切换
+- **新增 `ui/LiquidNavBar.kt`**：液态玻璃导航栏，四种动画
+  1. **Squash 按下压扁**：`Animatable` 驱动 0→1，胶囊横向 +6%、纵向 -16%，中心不动（不是整体缩小）；整条玻璃同步下沉 1.2dp
+  2. **Spring 松手回弹**：`spring(dampingRatio 0.42, stiffness 380)`，带过冲；位移用 `spring(0.62, 260)`，无线性位移
+  3. **Merge 靠近融合**：拖动时形状从手指位置桥接到目标格并拉出细腰；点击时 `stretch` 先胀到 1.55 格再收拢（150ms 胀 / 340ms 收）
+  4. **Light 移动流光**：62% 宽的白色横向渐变沿表面掠过，`sin` 淡入淡出，620ms 后归于平静
+- **材质**：`hazeEffect` 真实背景模糊（浅色 26dp / 深色 22dp / AMOLED 18dp），`hazeTint` 透明度降到 0.50，能看见背后页面内容；叠加极淡投影让玻璃条浮起
+- **交互**：单击在**松手时**判定选中（按下不动选中项，避免滑动误切）；长按 0.5s 进入拖动连续切页，带触感反馈与两端橡皮筋；`semantics { role = Tab; selected; onClick }` 保证 TalkBack 可用
+- **移除旧实现**：`MainActivity` 内联的 `BottomNav`（含 26dp 圆角矩形 + 静态高亮块）删除，改用组件化导航栏
+- 数据卡片、列表、图表全部保持实色，未做任何玻璃化；网络监控与流量统计逻辑零改动
+
+### 兼容与性能
+- Android 12（API 31）及以上：完整效果，真实背景模糊
+- Android 8–11（API 26–30）：Haze 自动降级为半透明着色（无真实模糊），胶囊形变/融合/流光动画照常
+- 动画状态全部在 `Canvas` draw 阶段读取，只触发重绘不触发重组；页面数据刷新与动画互不影响
+
 ## v6.3（build 42）—— 2026-11-27
 
 ### 交互（长按拖动切页 + 液态手感）
