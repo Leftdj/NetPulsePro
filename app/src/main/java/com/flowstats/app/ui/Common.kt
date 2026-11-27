@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -197,5 +198,68 @@ fun SoftCard(
             .shadow(elevation, RoundedCornerShape(corner), clip = false)
             .clip(RoundedCornerShape(corner))
             .background(color)
+    ) { content() }
+}
+
+/**
+ * 液态玻璃质感容器（局部点缀用，不覆盖数据卡片）。
+ *
+ * 用「半透明底 + 渐变高光描边 + 顶部高光条」模拟玻璃折射观感：
+ * - 不依赖 AGSL/RenderEffect，所有 Android 版本表现一致，无低版本降级突变；
+ * - 无背景模糊，长列表滚动零额外开销；
+ * - 适合顶栏、底栏、弹窗这类装饰性表面，数据区仍用 SoftCard 实色保证可读性。
+ *
+ * @param tint 底色；深浅主题由调用方传入对应 surface 色
+ * @param alpha 半透明度，越小越"透"，建议 0.72~0.86
+ */
+@Composable
+fun GlassSurface(
+    modifier: Modifier = Modifier,
+    tint: Color,
+    corner: Dp = 18.dp,
+    alpha: Float = 0.82f,
+    glow: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(corner)
+    Box(
+        modifier
+            .drawBehind {
+                // 渐变高光描边：左上亮、右下淡，制造玻璃边缘的折射感
+                if (glow) {
+                    val stroke = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.55f),
+                            Color.White.copy(alpha = 0.06f),
+                            Color.White.copy(alpha = 0.28f)
+                        ),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, size.height)
+                    )
+                    val w = 1.2.dp.toPx()
+                    drawRoundRect(
+                        brush = stroke,
+                        cornerRadius = CornerRadius(corner.toPx()),
+                        style = Stroke(width = w),
+                        size = Size(size.width - w, size.height - w),
+                        topLeft = Offset(w / 2, w / 2)
+                    )
+                    // 顶部一条柔和高光，模拟玻璃上表面的反光
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.18f),
+                                Color.White.copy(alpha = 0f)
+                            ),
+                            startY = 0f,
+                            endY = size.height * 0.42f
+                        ),
+                        cornerRadius = CornerRadius(corner.toPx()),
+                        size = Size(size.width, size.height * 0.42f)
+                    )
+                }
+            }
+            .clip(shape)
+            .background(tint.copy(alpha = alpha))
     ) { content() }
 }

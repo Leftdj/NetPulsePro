@@ -72,10 +72,14 @@ fun LanDeviceDetailDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        GlassSurface(
+            Modifier.fillMaxWidth(0.94f).heightIn(max = 620.dp),
+            tint = MaterialTheme.colorScheme.surface,
+            corner = 20.dp,
+            alpha = 0.92f
+        ) {
         Column(
-            Modifier.fillMaxWidth(0.94f).heightIn(max = 620.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
+            Modifier.fillMaxWidth()
                 .padding(horizontal = 18.dp, vertical = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
@@ -201,6 +205,7 @@ fun LanDeviceDetailDialog(
                 }
             }
             Spacer(Modifier.height(8.dp))
+        }
         }
     }
 }

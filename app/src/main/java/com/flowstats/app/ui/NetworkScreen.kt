@@ -1090,12 +1090,13 @@ private fun LinkHistoryFullDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Column(
-            Modifier.fillMaxWidth(0.94f).heightIn(max = 640.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 16.dp, vertical = 14.dp)
+        GlassSurface(
+            Modifier.fillMaxWidth(0.94f).heightIn(max = 640.dp),
+            tint = MaterialTheme.colorScheme.surface,
+            corner = 20.dp,
+            alpha = 0.92f
         ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("链路质量历史 · 全部", fontSize = 15.sp, fontWeight = FontWeight.Bold,
@@ -1125,6 +1126,7 @@ private fun LinkHistoryFullDialog(
             Spacer(Modifier.height(8.dp))
             Text("仅反映 Wi-Fi 链路能力，不代表实际下载速度；颜色按占参考上限比例分级。",
                 fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         }
     }
 }

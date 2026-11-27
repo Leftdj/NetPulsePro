@@ -70,13 +70,40 @@ fun TopBar(
     onAction: () -> Unit
 ) {
     val tint = if (transparent) Color.White else MaterialTheme.colorScheme.onSurface
+    // 非透明模式用玻璃质感容器（半透明+高光描边），透明模式保持原样
+    val barModifier = Modifier
+        .fillMaxWidth()
+        .statusBarsPadding()
+        .height(60.dp)
+        .padding(horizontal = 14.dp)
+    if (transparent) {
+        Row(
+            barModifier.background(Color.Transparent),
+            verticalAlignment = Alignment.CenterVertically
+        ) { TopBarContent(title, tint, transparent, onMenu, onAction) }
+    } else {
+        GlassSurface(
+            barModifier,
+            tint = MaterialTheme.colorScheme.surface,
+            corner = 0.dp,
+            alpha = 0.86f,
+            glow = false
+        ) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TopBarContent(title, tint, transparent, onMenu, onAction)
+        } }
+    }
+}
+
+@Composable
+private fun TopBarContent(
+    title: String,
+    tint: Color,
+    transparent: Boolean,
+    onMenu: () -> Unit,
+    onAction: () -> Unit
+) {
     Row(
-        Modifier
-            .fillMaxWidth()
-            .background(if (transparent) Color.Transparent else MaterialTheme.colorScheme.surface)
-            .statusBarsPadding()
-            .height(60.dp)
-            .padding(horizontal = 14.dp),
+        Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(

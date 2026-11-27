@@ -80,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.flowstats.app.data.AppUsage
 import com.flowstats.app.ui.AppDetailScreen
 import com.flowstats.app.ui.AppsScreen
+import com.flowstats.app.ui.GlassSurface
 import com.flowstats.app.ui.DatePickerSheet
 import com.flowstats.app.ui.InsightsScreen
 import com.flowstats.app.ui.MainViewModel
@@ -229,6 +230,43 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                    // 背景装饰光斑：让顶栏/底栏的半透明玻璃能透出柔和色彩，形成液态玻璃观感。
+                    // 固定在底层、不参与滚动，仅 3 个圆形，开销可忽略；数据卡片为实色不受影响。
+                    Canvas(Modifier.fillMaxSize()) {
+                        val w = size.width
+                        val h = size.height
+                        val glowAlpha = if (ui.darkTheme) 0.16f else 0.10f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    com.flowstats.app.ui.theme.Blue.copy(alpha = glowAlpha),
+                                    Color.Transparent
+                                ),
+                                center = Offset(w * 0.12f, h * 0.06f), radius = w * 0.7f
+                            ),
+                            radius = w * 0.7f, center = Offset(w * 0.12f, h * 0.06f)
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    com.flowstats.app.ui.theme.Purple.copy(alpha = glowAlpha * 0.9f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(w * 0.92f, h * 0.42f), radius = w * 0.65f
+                            ),
+                            radius = w * 0.65f, center = Offset(w * 0.92f, h * 0.42f)
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    com.flowstats.app.ui.theme.Teal.copy(alpha = glowAlpha * 0.7f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(w * 0.25f, h * 0.92f), radius = w * 0.6f
+                            ),
+                            radius = w * 0.6f, center = Offset(w * 0.25f, h * 0.92f)
+                        )
+                    }
                     AnimatedContent(
                         targetState = screen,
                         transitionSpec = {
@@ -423,9 +461,15 @@ private fun BottomNav(current: Screen, onSelect: (Screen) -> Unit) {
         "网络" to Screen.Network,
         "设置" to Screen.Settings
     )
-    Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+    // 底部导航用玻璃质感：半透明底 + 顶部高光，数据卡片不受影响
+    GlassSurface(
+        Modifier.fillMaxWidth(),
+        tint = MaterialTheme.colorScheme.surface,
+        corner = 0.dp,
+        alpha = 0.88f,
+        glow = false
     ) {
+    Column(Modifier.fillMaxWidth()) {
         // 极细分割线代替阴影，和卡片风格保持一致
         Box(
             Modifier.fillMaxWidth().height(0.5.dp)
@@ -468,6 +512,7 @@ private fun BottomNav(current: Screen, onSelect: (Screen) -> Unit) {
                 }
             }
         }
+    }
     }
 }
 
