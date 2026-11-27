@@ -46,6 +46,7 @@ object AppUpdate {
 
     /** 本项目真实迭代记录，与 build.gradle.kts 的 versionCode / versionName 对应 */
     val history: List<ReleaseNote> = listOf(
+        ReleaseNote("v7.1", 44, "底栏按参考视频重做：通透玻璃 + 点击涟漪 + 淡蓝水滴高亮"),
         ReleaseNote("v7.0", 43, "底部导航液态玻璃重做：压扁/回弹/融合/流光"),
         ReleaseNote("v6.3", 42, "底栏支持长按后左右拖动切换页面，带压扁与回弹"),
         ReleaseNote("v6.2", 41, "底栏改为真胶囊形状，选中高亮用弹簧动画滑动"),

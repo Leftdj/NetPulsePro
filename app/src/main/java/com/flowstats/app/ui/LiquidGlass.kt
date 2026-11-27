@@ -71,7 +71,7 @@ fun rememberLiquidPalette(): LiquidPalette {
         if (isAmoled) {
             LiquidPalette(
                 isDark = true, isAmoled = true,
-                hazeTint = Color.Black.copy(alpha = 0.60f),
+                hazeTint = Color.Black.copy(alpha = 0.46f),
                 blurRadius = 18.dp,
                 bodyTop = Color.White.copy(alpha = 0.10f),
                 bodyMid = Color.White.copy(alpha = 0.05f),
@@ -87,7 +87,7 @@ fun rememberLiquidPalette(): LiquidPalette {
         } else if (isDark) {
             LiquidPalette(
                 isDark = true, isAmoled = false,
-                hazeTint = scheme.surface.copy(alpha = 0.58f),
+                hazeTint = scheme.surface.copy(alpha = 0.40f),
                 blurRadius = 22.dp,
                 bodyTop = Color.White.copy(alpha = 0.13f),
                 bodyMid = Color.White.copy(alpha = 0.07f),
@@ -103,7 +103,7 @@ fun rememberLiquidPalette(): LiquidPalette {
         } else {
             LiquidPalette(
                 isDark = false, isAmoled = false,
-                hazeTint = scheme.surface.copy(alpha = 0.50f),
+                hazeTint = scheme.surface.copy(alpha = 0.30f),
                 blurRadius = 26.dp,
                 bodyTop = Color.White.copy(alpha = 0.26f),
                 bodyMid = Color.White.copy(alpha = 0.14f),
