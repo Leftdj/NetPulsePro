@@ -71,8 +71,8 @@ fun rememberLiquidPalette(): LiquidPalette {
         if (isAmoled) {
             LiquidPalette(
                 isDark = true, isAmoled = true,
-                hazeTint = Color.Black.copy(alpha = 0.46f),
-                blurRadius = 18.dp,
+                hazeTint = Color.Black.copy(alpha = 0.68f),
+                blurRadius = 26.dp,
                 bodyTop = Color.White.copy(alpha = 0.10f),
                 bodyMid = Color.White.copy(alpha = 0.05f),
                 bodyBottom = Color.White.copy(alpha = 0.02f),
@@ -87,11 +87,11 @@ fun rememberLiquidPalette(): LiquidPalette {
         } else if (isDark) {
             LiquidPalette(
                 isDark = true, isAmoled = false,
-                hazeTint = scheme.surface.copy(alpha = 0.40f),
-                blurRadius = 22.dp,
-                bodyTop = Color.White.copy(alpha = 0.13f),
-                bodyMid = Color.White.copy(alpha = 0.07f),
-                bodyBottom = Color.White.copy(alpha = 0.03f),
+                hazeTint = scheme.surface.copy(alpha = 0.62f),
+                blurRadius = 30.dp,
+                bodyTop = Color.White.copy(alpha = 0.16f),
+                bodyMid = Color.White.copy(alpha = 0.10f),
+                bodyBottom = Color.White.copy(alpha = 0.05f),
                 rimLight = Color.White.copy(alpha = 0.38f),
                 rimMid = Color.White.copy(alpha = 0.10f),
                 rimDark = Color.Black.copy(alpha = 0.40f),
@@ -103,11 +103,11 @@ fun rememberLiquidPalette(): LiquidPalette {
         } else {
             LiquidPalette(
                 isDark = false, isAmoled = false,
-                hazeTint = scheme.surface.copy(alpha = 0.30f),
-                blurRadius = 26.dp,
-                bodyTop = Color.White.copy(alpha = 0.26f),
-                bodyMid = Color.White.copy(alpha = 0.14f),
-                bodyBottom = Color.White.copy(alpha = 0.07f),
+                hazeTint = scheme.surface.copy(alpha = 0.66f),
+                blurRadius = 34.dp,
+                bodyTop = Color.White.copy(alpha = 0.34f),
+                bodyMid = Color.White.copy(alpha = 0.18f),
+                bodyBottom = Color.White.copy(alpha = 0.10f),
                 rimLight = Color.White.copy(alpha = 0.95f),
                 rimMid = Color.White.copy(alpha = 0.35f),
                 rimDark = Color(0xFF3769F5).copy(alpha = 0.10f),
@@ -150,8 +150,9 @@ fun liquidPillPath(left: Float, right: Float, top: Float, bottom: Float): Path {
     val lc = left + rad
     val rc = right - rad
     val d = rc - lc
-    // 圆心越远，腰部收得越细（0 = 完全融合，1 = 拉成细颈）
-    val grip = (d / (rad * 3.2f)).coerceIn(0f, 1f)
+    // 圆心距小于 1.2 倍半径时视为未拉伸，画标准胶囊（静止态上下边不能有凹痕）；
+    // 拉得越远腰越细，形成液体被拉伸、尚未断开的状态
+    val grip = ((d - rad * 1.2f) / (rad * 2.0f)).coerceIn(0f, 1f)
     val waist = rad * 0.52f * grip
     val k = d * 0.34f
     path.moveTo(lc, top)
@@ -184,7 +185,7 @@ fun DrawScope.drawGlassBody(palette: LiquidPalette, corner: Dp) {
     // 底部内侧折射：玻璃厚边把环境光带回来
     drawRoundRect(
         brush = Brush.verticalGradient(
-            listOf(Color.Transparent, palette.accent.copy(alpha = 0.055f)),
+            listOf(Color.Transparent, palette.accent.copy(alpha = 0.085f)),
             startY = size.height * 0.62f, endY = size.height
         ),
         cornerRadius = CornerRadius(r, r)

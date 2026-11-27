@@ -3,6 +3,7 @@ package com.flowstats.app.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -40,9 +41,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -64,6 +67,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.sin
 
 /**
  * 液态玻璃底部导航栏（按参考视频重做）。
@@ -101,8 +105,11 @@ fun LiquidNavBar(
 
     // 选中高亮块：中心 x（px），弹簧补间
     val hlX = remember { Animatable(0f) }
-    // 液态胀缩：切换时先胀开再收拢
+    // Merge：切换时先胀开再收拢，配合 liquidPillPath 在拉伸时自然拉出腰形
     val stretch = remember { Animatable(0f) }
+    // Light：高亮块内流光行程（0→1，sin 淡入淡出）；barSheen 为整条玻璃表面的淡流光
+    val sheen = remember { Animatable(1f) }
+    val barSheen = remember { Animatable(1f) }
     // 按压深度：0 常态，1 压到最深
     val squash = remember { Animatable(0f) }
     // 涟漪进度：>=1 表示当前没有涟漪
@@ -133,11 +140,19 @@ fun LiquidNavBar(
             )
         }
     }
-    // 切换瞬间：先胀后收（液体被带走）
+    // 切换瞬间：先胀后收（液体被带走）+ 流光掠过
     LaunchedEffect(selectedIndex) {
         if (reduceMotion) {
             stretch.snapTo(0f)
             return@LaunchedEffect
+        }
+        launch {
+            sheen.snapTo(0f)
+            sheen.animateTo(1f, tween(durationMillis = 620, easing = LinearEasing))
+        }
+        launch {
+            barSheen.snapTo(0f)
+            barSheen.animateTo(1f, tween(durationMillis = 760, easing = LinearEasing))
         }
         stretch.snapTo(0f)
         stretch.animateTo(1f, tween(durationMillis = 150, easing = FastOutLinearInEasing))
@@ -249,28 +264,31 @@ fun LiquidNavBar(
         SideEffect { cellW.floatValue = itemW }
         val selected by rememberUpdatedState(selectedIndex)
 
-        // 选中高亮块：淡蓝水滴形圆角块，画在图标文字之下
+        // 选中高亮块：标准横向胶囊（宽 > 高），画在图标文字之下
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width / labels.size
             val cx = if (dragging) dragCx else hlX.value
-            // 液态胀缩：切换瞬间横向胀开 30%，随后收拢
-            val blockW = w * 0.68f * (1f + 0.30f * stretch.value)
-            val halfH = (size.height / 2f - 10.dp.toPx()) * (1f - 0.12f * squash.value)
+            // Merge 拉伸：切换瞬间横向胀开 30%，随后收拢回标准宽度；
+            // 静止时宽度明显大于高度（横向胶囊），绝不超出单个导航项
+            val baseW = w - 10.dp.toPx()
+            val blockW = baseW * (1f + 0.30f * stretch.value)
+            // 高度内缩 10dp，与导航栏内部空间匹配，图标与文字保持居中
+            val halfH = size.height / 2f - 10.dp.toPx()
             val cy = size.height / 2f
             val l = cx - blockW / 2f
             val r = cx + blockW / 2f
             val t = cy - halfH
             val b = cy + halfH
             if (r - l < 1f || b - t < 1f) return@Canvas
-            // 宽高接近时 liquidPillPath 退化为圆角矩形（视频里的水滴块形状）
+            // 宽略大于高 → 标准胶囊；拉伸时 liquidPillPath 自动拉出腰形（融合）
             val path = liquidPillPath(l, r, t, b)
             // 1. 淡蓝色玻璃底
             drawPath(
                 path = path,
                 brush = Brush.verticalGradient(
                     listOf(
-                        palette.accent.copy(alpha = 0.26f),
-                        palette.accent.copy(alpha = 0.16f)
+                        palette.accent.copy(alpha = 0.30f),
+                        palette.accent.copy(alpha = 0.20f)
                     ),
                     startY = t, endY = b
                 )
@@ -283,7 +301,27 @@ fun LiquidNavBar(
                     startY = t, endY = t + (b - t) * 0.55f
                 )
             )
-            // 3. 玻璃描边：白色边缘高光
+            // 3. Light：流光掠过块内表面，随切换播放后归于平静
+            if (sheen.value in 0f..1f) {
+                val band = blockW * 0.62f
+                val sx = l - band + (blockW + band * 2f) * sheen.value
+                val fade = sin(Math.PI * sheen.value).toFloat().coerceIn(0f, 1f)
+                clipPath(path) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.White.copy(alpha = 0.30f * fade),
+                                Color.Transparent
+                            ),
+                            startX = sx, endX = sx + band
+                        ),
+                        topLeft = Offset(l, t),
+                        size = Size(blockW, b - t)
+                    )
+                }
+            }
+            // 4. 玻璃描边：白色边缘高光
             drawPath(path, Color.White.copy(alpha = 0.55f), style = Stroke(width = 1.1.dp.toPx()))
         }
 
@@ -345,6 +383,27 @@ fun LiquidNavBar(
                     )
                 }
             }
+        }
+
+        // 整条玻璃的淡流光（Light）：比块内流光更淡更慢，过后归于平静
+        Canvas(Modifier.fillMaxSize()) {
+            val p = barSheen.value
+            if (p >= 1f) return@Canvas
+            val fade = sin(Math.PI * p).toFloat().coerceIn(0f, 1f)
+            val band = size.width * 0.45f
+            val sx = -band + (size.width + band * 2f) * p
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = 0.14f * fade),
+                        Color.Transparent
+                    ),
+                    startX = sx, endX = sx + band
+                ),
+                topLeft = Offset(0f, 0f),
+                size = Size(size.width, size.height)
+            )
         }
 
         // 点击涟漪：白色圆盘 + 两道圆环波纹，从指腹位置扩散后归于平静
