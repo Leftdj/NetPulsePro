@@ -183,12 +183,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             dnsIntervalMs = 1_000L,
             showSystem = prefs.getBoolean("showSystem", false),
             hideUnknown = prefs.getBoolean("hideUnknown", false),
-            monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300),
-            linkHistory = LinkQualityHistory.load(application.applicationContext)
+            monthlyQuotaGb = prefs.getInt("monthlyQuotaGb", 300)
         )
+        checkPermission()
+        // 冷启动卡顿修复：首帧之后再启动非首屏必需的任务。
+        // 冷启动最重的成本是首帧渲染 + JIT 编译，网络事件监听、设备指标轮询、
+        // 各历史仓库加载若同时启动会抢占 CPU，UI 线程被挤压导致「打开要缓一会」。
+        // 统一延后 600ms，等首帧渲染完、系统空闲后再逐项开始。
         viewModelScope.launch(Dispatchers.IO) {
+            // 链路质量历史也是 SharedPreferences + JSON 解析，不能留在主线程（此前在 init 主线程直接调用，是冷启动阻塞点）
+            _ui.value = _ui.value.copy(
+                linkHistory = LinkQualityHistory.load(application.applicationContext)
+            )
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(600)
             val ctx = application.applicationContext
-            // 逐项 copy，避免整块覆盖掉 checkPermission / 设备监控并发写入的字段
+            NetEventLog.start(ctx)
+            // 网络事件时间轴：连接恢复那一刻立刻补测一次，不用等下一轮轮询
+            NetEventLog.events
+                .onEach { list ->
+                    val previous = _ui.value.events.firstOrNull()
+                    _ui.value = _ui.value.copy(events = list)
+                    val newest = list.firstOrNull()
+                    if (newest != null && newest.time != previous?.time &&
+                        newest.kind == NetEventKind.ONLINE
+                    ) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            runPingRound(quick = true, withDns = true)
+                        }
+                        // 出口 IP 可能已经变了，清掉缓存重新取
+                        _ui.value = _ui.value.copy(publicIp = null, publicIpv6 = null)
+                        refreshPublicIp(force = true)
+                    }
+                }
+                .launchIn(viewModelScope)
+            startDeviceMonitor()
+            // 各历史仓库逐项 copy，避免整块覆盖掉 checkPermission / 设备监控并发写入的字段
             _ui.value = _ui.value.copy(wifiScanHistory = WifiChannelScanner.loadHistory(ctx))
             _ui.value = _ui.value.copy(signalSpots = SignalSpotStore.load(ctx))
             _ui.value = _ui.value.copy(deviceMeta = com.flowstats.app.data.LanDeviceStore.load(ctx))
@@ -197,28 +228,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 diagnosticHistory = com.flowstats.app.data.DiagnosticHistory.load(ctx)
             )
         }
-        checkPermission()
-        // 网络事件时间轴与设备指标不依赖流量权限，立即开始采集
-        NetEventLog.start(application.applicationContext)
-        NetEventLog.events
-            .onEach { list ->
-                val previous = _ui.value.events.firstOrNull()
-                _ui.value = _ui.value.copy(events = list)
-                val newest = list.firstOrNull()
-                // 网络恢复的那一刻立刻补测一次，不用等下一轮轮询
-                if (newest != null && newest.time != previous?.time &&
-                    newest.kind == NetEventKind.ONLINE
-                ) {
-                    viewModelScope.launch(Dispatchers.IO) {
-                        runPingRound(quick = true, withDns = true)
-                    }
-                    // 出口 IP 可能已经变了，清掉缓存重新取
-                    _ui.value = _ui.value.copy(publicIp = null, publicIpv6 = null)
-                    refreshPublicIp(force = true)
-                }
-            }
-            .launchIn(viewModelScope)
-        startDeviceMonitor()
     }
 
     /**
@@ -922,7 +931,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     permissionChecked = true,
                     message = if (apps.isEmpty() && granted) "该时间段暂无流量记录" else null
                 )
-                // 历史数据较慢，分批加载，避免主列表卡顿
+                // 历史数据较慢，分批加载，避免主列表卡顿；
+                // 冷启动时先让首屏主查询完成，稍作停顿再查趋势，避免多路查询同时抢占 CPU
+                delay(400)
                 val trend = repository.dailyTotals(7)
                 if (token != reloadToken) return@launch
                 _ui.value = _ui.value.copy(dailyTrend = trend, trendReady = true)
